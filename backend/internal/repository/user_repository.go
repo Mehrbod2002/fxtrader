@@ -37,7 +37,7 @@ func (r *MongoUserRepository) GetUserByID(id primitive.ObjectID) (*models.UserAc
 	defer cancel()
 
 	var user models.UserAccount
-	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&user)
+	err := r.collection.FindOne(ctx, bson.M{"telegram_id": id}).Decode(&user)
 	if err == mongo.ErrNoDocuments {
 		return nil, nil
 	}

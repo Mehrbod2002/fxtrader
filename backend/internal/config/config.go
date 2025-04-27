@@ -39,7 +39,7 @@ func Load() (*Config, error) {
 
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
-		mongoURI = "mongodb://localhost:27017"
+		mongoURI = "mongodb://127.0.0.1:27017"
 	}
 
 	return &Config{

@@ -36,7 +36,12 @@ func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService s
 		c.File(symbolFile)
 	})
 
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	wdRoot := filepath.Join(wd, "..", "..")
+	swaggerJSONPath := filepath.Join(wdRoot, "docs", "swagger.json")
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.URL("/docs/swagger.json")))
+	r.GET("/docs/swagger.json", func(c *gin.Context) {
+		c.File(swaggerJSONPath)
+	})
 
 	v1 := r.Group("/api")
 	{
