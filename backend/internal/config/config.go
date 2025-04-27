@@ -8,9 +8,10 @@ import (
 )
 
 type Config struct {
-	Address string
-	Port    int
-	BaseURL string
+	Address  string
+	Port     int
+	BaseURL  string
+	MongoURI string
 }
 
 func Load() (*Config, error) {
@@ -36,9 +37,15 @@ func Load() (*Config, error) {
 		baseURL = "http://localhost:" + portStr
 	}
 
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		mongoURI = "mongodb://localhost:27017"
+	}
+
 	return &Config{
-		Address: address,
-		Port:    port,
-		BaseURL: baseURL,
+		Address:  address,
+		Port:     port,
+		BaseURL:  baseURL,
+		MongoURI: mongoURI,
 	}, nil
 }
