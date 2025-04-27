@@ -11,6 +11,7 @@ import (
 type UserService interface {
 	SignupUser(user *models.UserAccount) error
 	GetUser(id string) (*models.UserAccount, error)
+	GetUserByTelegramID(telegramID string) (*models.UserAccount, error)
 }
 
 type userService struct {
@@ -33,4 +34,8 @@ func (s *userService) GetUser(id string) (*models.UserAccount, error) {
 		return nil, err
 	}
 	return s.userRepo.GetUserByID(objID)
+}
+
+func (s *userService) GetUserByTelegramID(telegramID string) (*models.UserAccount, error) {
+	return s.userRepo.GetUserByTelegramID(telegramID)
 }

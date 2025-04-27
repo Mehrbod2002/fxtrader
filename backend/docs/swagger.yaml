@@ -1,4 +1,73 @@
 definitions:
+  api.LoginRequest:
+    properties:
+      password:
+        type: string
+      telegram_id:
+        type: string
+    required:
+    - password
+    - telegram_id
+    type: object
+  api.TradeRequest:
+    properties:
+      entry_price:
+        type: number
+      leverage:
+        type: integer
+      symbol_name:
+        type: string
+      trade_type:
+        allOf:
+        - $ref: '#/definitions/models.TradeType'
+        enum:
+        - BUY
+        - SELL
+      volume:
+        type: number
+    required:
+    - entry_price
+    - leverage
+    - symbol_name
+    - trade_type
+    - volume
+    type: object
+  api.TransactionRequest:
+    properties:
+      amount:
+        type: number
+      payment_method:
+        allOf:
+        - $ref: '#/definitions/models.PaymentMethod'
+        enum:
+        - CARD_TO_CARD
+        - DEPOSIT_RECEIPT
+      receipt_image:
+        type: string
+      transaction_type:
+        allOf:
+        - $ref: '#/definitions/models.TransactionType'
+        enum:
+        - DEPOSIT
+        - WITHDRAWAL
+    required:
+    - amount
+    - payment_method
+    - transaction_type
+    type: object
+  api.TransactionReviewRequest:
+    properties:
+      admin_note:
+        type: string
+      status:
+        allOf:
+        - $ref: '#/definitions/models.TransactionStatus'
+        enum:
+        - APPROVED
+        - REJECTED
+    required:
+    - status
+    type: object
   models.LogEntry:
     properties:
       _id:
@@ -17,6 +86,14 @@ definitions:
       user_id:
         type: string
     type: object
+  models.PaymentMethod:
+    enum:
+    - CARD_TO_CARD
+    - DEPOSIT_RECEIPT
+    type: string
+    x-enum-varnames:
+    - PaymentMethodCardToCard
+    - PaymentMethodDepositReceipt
   models.PriceData:
     properties:
       ask:
@@ -70,6 +147,51 @@ definitions:
       updated_at:
         type: string
     type: object
+  models.TradeHistory:
+    properties:
+      _id:
+        type: string
+      close_price:
+        type: number
+      close_time:
+        type: string
+      entry_price:
+        type: number
+      leverage:
+        type: integer
+      open_time:
+        type: string
+      profit_loss:
+        type: number
+      status:
+        $ref: '#/definitions/models.TradeStatus'
+      symbol_name:
+        type: string
+      trade_type:
+        $ref: '#/definitions/models.TradeType'
+      user_id:
+        type: string
+      volume:
+        type: number
+    type: object
+  models.TradeStatus:
+    enum:
+    - OPEN
+    - CLOSED
+    - PENDING
+    type: string
+    x-enum-varnames:
+    - TradeStatusOpen
+    - TradeStatusClosed
+    - TradeStatusPending
+  models.TradeType:
+    enum:
+    - BUY
+    - SELL
+    type: string
+    x-enum-varnames:
+    - TradeTypeBuy
+    - TradeTypeSell
   models.TradingHours:
     properties:
       close_time:
@@ -79,41 +201,47 @@ definitions:
       unlimited:
         type: boolean
     type: object
-  models.UserAccount:
+  models.Transaction:
     properties:
       _id:
         type: string
-      account_name:
+      admin_note:
         type: string
-      account_type:
-        type: string
-      balance:
+      amount:
         type: number
-      bonus:
-        type: number
-      card_number:
+      payment_method:
+        $ref: '#/definitions/models.PaymentMethod'
+      receipt_image:
         type: string
-      citizenship:
+      request_time:
         type: string
-      full_name:
+      response_time:
         type: string
-      leverage:
-        type: integer
-      national_id:
-        type: string
-      phone_number:
-        type: string
-      registration_date:
-        type: string
-      telegram_id:
-        type: string
-      trade_type:
-        type: string
-      username:
-        type: string
-      wallet_address:
+      status:
+        $ref: '#/definitions/models.TransactionStatus'
+      transaction_type:
+        $ref: '#/definitions/models.TransactionType'
+      user_id:
         type: string
     type: object
+  models.TransactionStatus:
+    enum:
+    - PENDING
+    - APPROVED
+    - REJECTED
+    type: string
+    x-enum-varnames:
+    - TransactionStatusPending
+    - TransactionStatusApproved
+    - TransactionStatusRejected
+  models.TransactionType:
+    enum:
+    - DEPOSIT
+    - WITHDRAWAL
+    type: string
+    x-enum-varnames:
+    - TransactionTypeDeposit
+    - TransactionTypeWithdrawal
 info:
   contact: {}
 paths:
@@ -473,6 +601,126 @@ paths:
       summary: Update a symbol
       tags:
       - Symbols
+  /admin/transactions:
+    get:
+      description: Retrieves a list of all transactions (admin only)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Transaction'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to retrieve transactions
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Get all transactions
+      tags:
+      - Transactions
+  /admin/transactions/{id}:
+    put:
+      consumes:
+      - application/json
+      description: Approves or rejects a transaction with an optional note (admin
+        only)
+      parameters:
+      - description: Transaction ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Review data
+        in: body
+        name: review
+        required: true
+        schema:
+          $ref: '#/definitions/api.TransactionReviewRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Transaction reviewed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to review transaction
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Review a transaction
+      tags:
+      - Transactions
+  /admin/transactions/user/{user_id}:
+    get:
+      description: Retrieves transactions for a specific user (admin only)
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Transaction'
+            type: array
+        "400":
+          description: Invalid user ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to retrieve transactions
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Get transactions by user ID
+      tags:
+      - Transactions
   /prices:
     post:
       consumes:
@@ -582,11 +830,83 @@ paths:
       summary: Get symbol by ID
       tags:
       - Symbols
-  /users/{id}:
+  /trades:
     get:
-      description: Retrieves user account details by user ID
+      description: Retrieves all trades for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.TradeHistory'
+            type: array
+        "400":
+          description: Invalid user ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to retrieve trades
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Get user trades
+      tags:
+      - Trades
+    post:
+      consumes:
+      - application/json
+      description: Allows a user to place a trade order
       parameters:
-      - description: User ID
+      - description: Trade order data
+        in: body
+        name: trade
+        required: true
+        schema:
+          $ref: '#/definitions/api.TradeRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Trade placed
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to place trade
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Place a new trade
+      tags:
+      - Trades
+  /trades/{id}:
+    get:
+      description: Retrieves details of a trade by ID
+      parameters:
+      - description: Trade ID
         in: path
         name: id
         required: true
@@ -597,39 +917,113 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.UserAccount'
+            $ref: '#/definitions/models.TradeHistory'
+        "400":
+          description: Invalid trade ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Trade not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Get trade by ID
+      tags:
+      - Trades
+  /transactions:
+    get:
+      description: Retrieves all transactions for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Transaction'
+            type: array
         "400":
           description: Invalid user ID
           schema:
             additionalProperties:
               type: string
             type: object
-        "404":
-          description: User not found
+        "500":
+          description: Failed to retrieve transactions
           schema:
             additionalProperties:
               type: string
             type: object
-      summary: Get user by ID
+      security:
+      - BearerAuth: []
+      summary: Get user transactions
       tags:
-      - Users
-  /users/signup:
+      - Transactions
     post:
       consumes:
       - application/json
-      description: Registers a new user account
+      description: Allows a user to request a deposit or withdrawal
       parameters:
-      - description: User account data
+      - description: Transaction data
         in: body
-        name: user
+        name: transaction
         required: true
         schema:
-          $ref: '#/definitions/models.UserAccount'
+          $ref: '#/definitions/api.TransactionRequest'
       produces:
       - application/json
       responses:
         "201":
-          description: User created
+          description: Transaction requested
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to create transaction
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Request a new transaction
+      tags:
+      - Transactions
+  /users/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user and returns a JWT token
+      parameters:
+      - description: User credentials
+        in: body
+        name: credentials
+        required: true
+        schema:
+          $ref: '#/definitions/api.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Token
           schema:
             additionalProperties:
               type: string
@@ -640,13 +1034,13 @@ paths:
             additionalProperties:
               type: string
             type: object
-        "500":
-          description: Failed to create user
+        "401":
+          description: Invalid credentials
           schema:
             additionalProperties:
               type: string
             type: object
-      summary: Create a new user
+      summary: User login
       tags:
       - Users
 swagger: "2.0"

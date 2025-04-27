@@ -1,39 +1,82 @@
 package api
 
 import (
+	"fxtrader/internal/config"
+	"fxtrader/internal/middleware"
 	"fxtrader/internal/models"
 	"fxtrader/internal/service"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type UserHandler struct {
 	userService service.UserService
 	logService  service.LogService
+	cfg         *config.Config
 }
 
-func NewUserHandler(userService service.UserService, logService service.LogService) *UserHandler {
-	return &UserHandler{userService: userService, logService: logService}
+func NewUserHandler(userService service.UserService, logService service.LogService, cfg *config.Config) *UserHandler {
+	return &UserHandler{userService: userService, logService: logService, cfg: cfg}
 }
 
-// @Summary Create a new user
-// @Description Registers a new user account
+// @Summary User login
+// @Description Authenticates a user and returns a JWT token
 // @Tags Users
 // @Accept json
 // @Produce json
-// @Param user body models.UserAccount true "User account data"
-// @Success 201 {object} map[string]string "User created"
+// @Param credentials body LoginRequest true "User credentials"
+// @Success 200 {object} map[string]string "Token"
 // @Failure 400 {object} map[string]string "Invalid JSON"
-// @Failure 500 {object} map[string]string "Failed to create user"
-// @Router /users/signup [post]
+// @Failure 401 {object} map[string]string "Invalid credentials"
+// @Router /users/login [post]
+func (h *UserHandler) Login(c *gin.Context) {
+	var req LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	user, err := h.userService.GetUserByTelegramID(req.TelegramID)
+	if err != nil || user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+
+	token, err := middleware.GenerateJWT(user.ID.Hex(), h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"user_id": user.ID.Hex(),
+	}
+	h.logService.LogAction(user.ID, "UserLogin", "User logged in", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, gin.H{"token": token})
+}
+
 func (h *UserHandler) SignupUser(c *gin.Context) {
 	var user models.UserAccount
 	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+		return
+	}
+	user.Password = string(hashedPassword)
 
 	if err := h.userService.SignupUser(&user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
@@ -49,15 +92,6 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"status": "User created", "user_id": user.ID.Hex()})
 }
 
-// @Summary Get user by ID
-// @Description Retrieves user account details by user ID
-// @Tags Users
-// @Produce json
-// @Param id path string true "User ID"
-// @Success 200 {object} models.UserAccount
-// @Failure 400 {object} map[string]string "Invalid user ID"
-// @Failure 404 {object} map[string]string "User not found"
-// @Router /users/{id} [get]
 func (h *UserHandler) GetUser(c *gin.Context) {
 	id := c.Param("id")
 	user, err := h.userService.GetUser(id)
@@ -76,4 +110,9 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 	h.logService.LogAction(primitive.ObjectID{}, "GetUser", "User data retrieved", c.ClientIP(), metadata)
 
 	c.JSON(http.StatusOK, user)
+}
+
+type LoginRequest struct {
+	TelegramID string `json:"telegram_id" binding:"required"`
+	Password   string `json:"password" binding:"required"`
 }

@@ -27,7 +27,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
-	defer client.Disconnect(context.Background())
+	defer func() {
+		if err := client.Disconnect(context.Background()); err != nil {
+			log.Printf("Error disconnecting from MongoDB: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -43,6 +47,12 @@ func main() {
 	symbolRepo := repository.NewSymbolRepository(client, "fxtrader", "symbols")
 	logRepo := repository.NewLogRepository(client, "fxtrader", "logs")
 	ruleRepo := repository.NewRuleRepository(client, "fxtrader", "rules")
+	tradeRepo := repository.NewTradeRepository(client, "fxtrader", "trades")
+	transactionRepo := repository.NewTransactionRepository(client, "fxtrader", "transactions")
+
+	if err := config.EnsureAdminUser(userRepo, cfg.AdminUser, cfg.AdminPass); err != nil {
+		log.Fatalf("Failed to ensure admin user: %v", err)
+	}
 
 	wsHandler := ws.NewWebSocketHandler(hub)
 	priceService := service.NewPriceService(priceRepo, hub)
@@ -50,12 +60,14 @@ func main() {
 	symbolService := service.NewSymbolService(symbolRepo)
 	logService := service.NewLogService(logRepo)
 	ruleService := service.NewRuleService(ruleRepo)
+	tradeService := service.NewTradeService(tradeRepo, symbolRepo, logService, cfg.MT5Endpoint)
+	transactionService := service.NewTransactionService(transactionRepo, logService)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 
-	api.SetupRoutes(r, cfg, priceService, userService, symbolService, logService, ruleService, wsHandler, cfg.BaseURL)
+	api.SetupRoutes(r, cfg, priceService, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, cfg.BaseURL)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
 	log.Printf("Starting server on http://%s", addr)

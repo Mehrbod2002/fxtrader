@@ -1,0 +1,159 @@
+package api
+
+import (
+	"fxtrader/internal/models"
+	"fxtrader/internal/service"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type TransactionHandler struct {
+	transactionService service.TransactionService
+	logService         service.LogService
+}
+
+func NewTransactionHandler(transactionService service.TransactionService, logService service.LogService) *TransactionHandler {
+	return &TransactionHandler{transactionService: transactionService, logService: logService}
+}
+
+// @Summary Request a new transaction
+// @Description Allows a user to request a deposit or withdrawal
+// @Tags Transactions
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param transaction body TransactionRequest true "Transaction data"
+// @Success 201 {object} map[string]string "Transaction requested"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to create transaction"
+// @Router /transactions [post]
+func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
+	var req TransactionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	userID := c.GetString("user_id")
+	transaction := &models.Transaction{
+		TransactionType: req.TransactionType,
+		PaymentMethod:   req.PaymentMethod,
+		Amount:          req.Amount,
+		ReceiptImage:    req.ReceiptImage,
+	}
+
+	if err := h.transactionService.CreateTransaction(userID, transaction); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"status": "Transaction requested", "transaction_id": transaction.ID.Hex()})
+}
+
+// @Summary Get user transactions
+// @Description Retrieves all transactions for the authenticated user
+// @Tags Transactions
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.Transaction
+// @Failure 400 {object} map[string]string "Invalid user ID"
+// @Failure 500 {object} map[string]string "Failed to retrieve transactions"
+// @Router /transactions [get]
+func (h *TransactionHandler) GetUserTransactions(c *gin.Context) {
+	userID := c.GetString("user_id")
+	transactions, err := h.transactionService.GetTransactionsByUserID(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, transactions)
+}
+
+// @Summary Get all transactions
+// @Description Retrieves a list of all transactions (admin only)
+// @Tags Transactions
+// @Produce json
+// @Security BasicAuth
+// @Success 200 {array} models.Transaction
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to retrieve transactions"
+// @Router /admin/transactions [get]
+func (h *TransactionHandler) GetAllTransactions(c *gin.Context) {
+	transactions, err := h.transactionService.GetAllTransactions()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve transactions"})
+		return
+	}
+	c.JSON(http.StatusOK, transactions)
+}
+
+// @Summary Get transactions by user ID
+// @Description Retrieves transactions for a specific user (admin only)
+// @Tags Transactions
+// @Produce json
+// @Security BasicAuth
+// @Param user_id path string true "User ID"
+// @Success 200 {array} models.Transaction
+// @Failure 400 {object} map[string]string "Invalid user ID"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to retrieve transactions"
+// @Router /admin/transactions/user/{user_id} [get]
+func (h *TransactionHandler) GetTransactionsByUser(c *gin.Context) {
+	userID := c.Param("user_id")
+	transactions, err := h.transactionService.GetTransactionsByUserID(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, transactions)
+}
+
+// @Summary Review a transaction
+// @Description Approves or rejects a transaction with an optional note (admin only)
+// @Tags Transactions
+// @Accept json
+// @Produce json
+// @Security BasicAuth
+// @Param id path string true "Transaction ID"
+// @Param review body TransactionReviewRequest true "Review data"
+// @Success 200 {object} map[string]string "Transaction reviewed"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to review transaction"
+// @Router /admin/transactions/{id} [put]
+func (h *TransactionHandler) ReviewTransaction(c *gin.Context) {
+	id := c.Param("id")
+	var req TransactionReviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	if err := h.transactionService.ReviewTransaction(id, req.Status, req.AdminNote); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"transaction_id": id,
+		"status":         req.Status,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "ReviewTransaction", "Transaction reviewed", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, gin.H{"status": "Transaction reviewed"})
+}
+
+type TransactionRequest struct {
+	TransactionType models.TransactionType `json:"transaction_type" binding:"required,oneof=DEPOSIT WITHDRAWAL"`
+	PaymentMethod   models.PaymentMethod   `json:"payment_method" binding:"required,oneof=CARD_TO_CARD DEPOSIT_RECEIPT"`
+	Amount          float64                `json:"amount" binding:"required,gt=0"`
+	ReceiptImage    string                 `json:"receipt_image,omitempty"`
+}
+
+type TransactionReviewRequest struct {
+	Status    models.TransactionStatus `json:"status" binding:"required,oneof=APPROVED REJECTED"`
+	AdminNote string                   `json:"admin_note,omitempty"`
+}

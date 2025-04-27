@@ -13,19 +13,14 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-// @title FXTrader API
-// @version 1.0
-// @description API for the FXTrader app
-// @host localhost:8080
-// @BasePath /api
-// @schemes http
-// @securityDefinitions.basic BasicAuth
-func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceService, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, wsHandler *ws.WebSocketHandler, baseURL string) {
+func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceService, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, tradeService service.TradeService, transactionService service.TransactionService, wsHandler *ws.WebSocketHandler, baseURL string) {
 	priceHandler := NewPriceHandler(priceService, logService)
-	userHandler := NewUserHandler(userService, logService)
+	userHandler := NewUserHandler(userService, logService, cfg)
 	symbolHandler := NewSymbolHandler(symbolService, logService)
 	logHandler := NewLogHandler(logService)
 	ruleHandler := NewRuleHandler(ruleService)
+	tradeHandler := NewTradeHandler(tradeService, logService)
+	transactionHandler := NewTransactionHandler(transactionService, logService)
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -55,10 +50,20 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceSe
 	{
 		v1.POST("/prices", priceHandler.HandlePrice)
 		v1.POST("/users/signup", userHandler.SignupUser)
+		v1.POST("/users/login", userHandler.Login)
 		v1.GET("/users/:id", userHandler.GetUser)
 		v1.GET("/symbols", symbolHandler.GetAllSymbols)
 		v1.GET("/symbols/:id", symbolHandler.GetSymbol)
 		v1.GET("/rules", ruleHandler.GetAllRules)
+
+		user := v1.Group("/").Use(middleware.UserAuthMiddleware(userService))
+		{
+			user.POST("/trades", tradeHandler.PlaceTrade)
+			user.GET("/trades", tradeHandler.GetUserTrades)
+			user.GET("/trades/:id", tradeHandler.GetTrade)
+			user.POST("/transactions", transactionHandler.CreateTransaction)
+			user.GET("/transactions", transactionHandler.GetUserTransactions)
+		}
 
 		admin := v1.Group("/admin").Use(middleware.AdminAuthMiddleware(cfg))
 		{
@@ -71,6 +76,9 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceSe
 			admin.GET("/rules/:id", ruleHandler.GetRule)
 			admin.PUT("/rules/:id", ruleHandler.UpdateRule)
 			admin.DELETE("/rules/:id", ruleHandler.DeleteRule)
+			admin.GET("/transactions", transactionHandler.GetAllTransactions)
+			admin.GET("/transactions/user/:user_id", transactionHandler.GetTransactionsByUser)
+			admin.PUT("/transactions/:id", transactionHandler.ReviewTransaction)
 		}
 	}
 

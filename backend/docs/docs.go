@@ -571,6 +571,192 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/transactions": {
+            "get": {
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Retrieves a list of all transactions (admin only)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transactions"
+                ],
+                "summary": "Get all transactions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Transaction"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to retrieve transactions",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/transactions/user/{user_id}": {
+            "get": {
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Retrieves transactions for a specific user (admin only)",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transactions"
+                ],
+                "summary": "Get transactions by user ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Transaction"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid user ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to retrieve transactions",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/transactions/{id}": {
+            "put": {
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Approves or rejects a transaction with an optional note (admin only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transactions"
+                ],
+                "summary": "Review a transaction",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Transaction ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Review data",
+                        "name": "review",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.TransactionReviewRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Transaction reviewed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to review transaction",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/prices": {
             "post": {
                 "description": "Receives and processes price data for a trading symbol",
@@ -737,9 +923,287 @@ const docTemplate = `{
                 }
             }
         },
-        "/users/signup": {
+        "/trades": {
+            "get": {
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Retrieves all trades for the authenticated user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Trades"
+                ],
+                "summary": "Get user trades",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.TradeHistory"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid user ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to retrieve trades",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
             "post": {
-                "description": "Registers a new user account",
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Allows a user to place a trade order",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Trades"
+                ],
+                "summary": "Place a new trade",
+                "parameters": [
+                    {
+                        "description": "Trade order data",
+                        "name": "trade",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.TradeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Trade placed",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to place trade",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/trades/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Retrieves details of a trade by ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Trades"
+                ],
+                "summary": "Get trade by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Trade ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.TradeHistory"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid trade ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Trade not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/transactions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves all transactions for the authenticated user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transactions"
+                ],
+                "summary": "Get user transactions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Transaction"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid user ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to retrieve transactions",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Allows a user to request a deposit or withdrawal",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transactions"
+                ],
+                "summary": "Request a new transaction",
+                "parameters": [
+                    {
+                        "description": "Transaction data",
+                        "name": "transaction",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.TransactionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Transaction requested",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to create transaction",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users/login": {
+            "post": {
+                "description": "Authenticates a user and returns a JWT token",
                 "consumes": [
                     "application/json"
                 ],
@@ -749,21 +1213,21 @@ const docTemplate = `{
                 "tags": [
                     "Users"
                 ],
-                "summary": "Create a new user",
+                "summary": "User login",
                 "parameters": [
                     {
-                        "description": "User account data",
-                        "name": "user",
+                        "description": "User credentials",
+                        "name": "credentials",
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.UserAccount"
+                            "$ref": "#/definitions/api.LoginRequest"
                         }
                     }
                 ],
                 "responses": {
-                    "201": {
-                        "description": "User created",
+                    "200": {
+                        "description": "Token",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -780,55 +1244,8 @@ const docTemplate = `{
                             }
                         }
                     },
-                    "500": {
-                        "description": "Failed to create user",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/users/{id}": {
-            "get": {
-                "description": "Retrieves user account details by user ID",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Users"
-                ],
-                "summary": "Get user by ID",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "User ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/models.UserAccount"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid user ID",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "User not found",
+                    "401": {
+                        "description": "Invalid credentials",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -841,6 +1258,116 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "api.LoginRequest": {
+            "type": "object",
+            "required": [
+                "password",
+                "telegram_id"
+            ],
+            "properties": {
+                "password": {
+                    "type": "string"
+                },
+                "telegram_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.TradeRequest": {
+            "type": "object",
+            "required": [
+                "entry_price",
+                "leverage",
+                "symbol_name",
+                "trade_type",
+                "volume"
+            ],
+            "properties": {
+                "entry_price": {
+                    "type": "number"
+                },
+                "leverage": {
+                    "type": "integer"
+                },
+                "symbol_name": {
+                    "type": "string"
+                },
+                "trade_type": {
+                    "enum": [
+                        "BUY",
+                        "SELL"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.TradeType"
+                        }
+                    ]
+                },
+                "volume": {
+                    "type": "number"
+                }
+            }
+        },
+        "api.TransactionRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "payment_method",
+                "transaction_type"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "payment_method": {
+                    "enum": [
+                        "CARD_TO_CARD",
+                        "DEPOSIT_RECEIPT"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.PaymentMethod"
+                        }
+                    ]
+                },
+                "receipt_image": {
+                    "type": "string"
+                },
+                "transaction_type": {
+                    "enum": [
+                        "DEPOSIT",
+                        "WITHDRAWAL"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.TransactionType"
+                        }
+                    ]
+                }
+            }
+        },
+        "api.TransactionReviewRequest": {
+            "type": "object",
+            "required": [
+                "status"
+            ],
+            "properties": {
+                "admin_note": {
+                    "type": "string"
+                },
+                "status": {
+                    "enum": [
+                        "APPROVED",
+                        "REJECTED"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.TransactionStatus"
+                        }
+                    ]
+                }
+            }
+        },
         "models.LogEntry": {
             "type": "object",
             "properties": {
@@ -867,6 +1394,17 @@ const docTemplate = `{
                     "type": "string"
                 }
             }
+        },
+        "models.PaymentMethod": {
+            "type": "string",
+            "enum": [
+                "CARD_TO_CARD",
+                "DEPOSIT_RECEIPT"
+            ],
+            "x-enum-varnames": [
+                "PaymentMethodCardToCard",
+                "PaymentMethodDepositReceipt"
+            ]
         },
         "models.PriceData": {
             "type": "object",
@@ -949,6 +1487,71 @@ const docTemplate = `{
                 }
             }
         },
+        "models.TradeHistory": {
+            "type": "object",
+            "properties": {
+                "_id": {
+                    "type": "string"
+                },
+                "close_price": {
+                    "type": "number"
+                },
+                "close_time": {
+                    "type": "string"
+                },
+                "entry_price": {
+                    "type": "number"
+                },
+                "leverage": {
+                    "type": "integer"
+                },
+                "open_time": {
+                    "type": "string"
+                },
+                "profit_loss": {
+                    "type": "number"
+                },
+                "status": {
+                    "$ref": "#/definitions/models.TradeStatus"
+                },
+                "symbol_name": {
+                    "type": "string"
+                },
+                "trade_type": {
+                    "$ref": "#/definitions/models.TradeType"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "volume": {
+                    "type": "number"
+                }
+            }
+        },
+        "models.TradeStatus": {
+            "type": "string",
+            "enum": [
+                "OPEN",
+                "CLOSED",
+                "PENDING"
+            ],
+            "x-enum-varnames": [
+                "TradeStatusOpen",
+                "TradeStatusClosed",
+                "TradeStatusPending"
+            ]
+        },
+        "models.TradeType": {
+            "type": "string",
+            "enum": [
+                "BUY",
+                "SELL"
+            ],
+            "x-enum-varnames": [
+                "TradeTypeBuy",
+                "TradeTypeSell"
+            ]
+        },
         "models.TradingHours": {
             "type": "object",
             "properties": {
@@ -963,58 +1566,64 @@ const docTemplate = `{
                 }
             }
         },
-        "models.UserAccount": {
+        "models.Transaction": {
             "type": "object",
             "properties": {
                 "_id": {
                     "type": "string"
                 },
-                "account_name": {
+                "admin_note": {
                     "type": "string"
                 },
-                "account_type": {
-                    "type": "string"
-                },
-                "balance": {
+                "amount": {
                     "type": "number"
                 },
-                "bonus": {
-                    "type": "number"
+                "payment_method": {
+                    "$ref": "#/definitions/models.PaymentMethod"
                 },
-                "card_number": {
+                "receipt_image": {
                     "type": "string"
                 },
-                "citizenship": {
+                "request_time": {
                     "type": "string"
                 },
-                "full_name": {
+                "response_time": {
                     "type": "string"
                 },
-                "leverage": {
-                    "type": "integer"
+                "status": {
+                    "$ref": "#/definitions/models.TransactionStatus"
                 },
-                "national_id": {
-                    "type": "string"
+                "transaction_type": {
+                    "$ref": "#/definitions/models.TransactionType"
                 },
-                "phone_number": {
-                    "type": "string"
-                },
-                "registration_date": {
-                    "type": "string"
-                },
-                "telegram_id": {
-                    "type": "string"
-                },
-                "trade_type": {
-                    "type": "string"
-                },
-                "username": {
-                    "type": "string"
-                },
-                "wallet_address": {
+                "user_id": {
                     "type": "string"
                 }
             }
+        },
+        "models.TransactionStatus": {
+            "type": "string",
+            "enum": [
+                "PENDING",
+                "APPROVED",
+                "REJECTED"
+            ],
+            "x-enum-varnames": [
+                "TransactionStatusPending",
+                "TransactionStatusApproved",
+                "TransactionStatusRejected"
+            ]
+        },
+        "models.TransactionType": {
+            "type": "string",
+            "enum": [
+                "DEPOSIT",
+                "WITHDRAWAL"
+            ],
+            "x-enum-varnames": [
+                "TransactionTypeDeposit",
+                "TransactionTypeWithdrawal"
+            ]
         }
     }
 }`

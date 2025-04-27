@@ -14,6 +14,7 @@ type Config struct {
 	MongoURI  string
 	AdminUser string
 	AdminPass string
+	JWTSecret string
 }
 
 func Load() (*Config, error) {
@@ -54,6 +55,11 @@ func Load() (*Config, error) {
 		adminPass = "admin"
 	}
 
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "default_jwt_secret"
+	}
+
 	return &Config{
 		Address:   address,
 		Port:      port,
@@ -61,5 +67,6 @@ func Load() (*Config, error) {
 		MongoURI:  mongoURI,
 		AdminUser: adminUser,
 		AdminPass: adminPass,
+		JWTSecret: jwtSecret,
 	}, nil
 }
