@@ -20,6 +20,7 @@ type TradeService interface {
 	GetAllTrades() ([]*models.TradeHistory, error)
 	HandleTradeResponse(response TradeResponse) error
 	StartUDPListener() error
+	RequestBalance(userID string) (float64, error)
 }
 
 type tradeService struct {
@@ -30,6 +31,15 @@ type tradeService struct {
 	mt5UDPAddr    *net.UDPAddr
 	listenUDPAddr *net.UDPAddr
 	responseChan  chan TradeResponse
+	balanceChan   chan BalanceResponse
+}
+
+type BalanceResponse struct {
+	Type      string  `json:"type"`
+	UserID    string  `json:"user_id"`
+	Balance   float64 `json:"balance"`
+	Error     string  `json:"error,omitempty"`
+	Timestamp int64   `json:"timestamp"`
 }
 
 func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, logService LogService, mt5Host string, mt5Port, listenPort int) (TradeService, error) {
@@ -49,6 +59,7 @@ func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository
 		mt5UDPAddr:    mt5Addr,
 		listenUDPAddr: listenAddr,
 		responseChan:  make(chan TradeResponse, 100),
+		balanceChan:   make(chan BalanceResponse, 100),
 	}, nil
 }
 
@@ -69,13 +80,29 @@ func (s *tradeService) StartUDPListener() error {
 				continue
 			}
 
-			var response TradeResponse
-			if err := json.Unmarshal(buf[:n], &response); err != nil {
-				log.Printf("Failed to parse UDP response: %v", err)
+			var msg map[string]interface{}
+			if err := json.Unmarshal(buf[:n], &msg); err != nil {
+				log.Printf("Failed to parse UDP message: %v", err)
 				continue
 			}
 
-			s.responseChan <- response
+			if msgType, ok := msg["type"].(string); ok {
+				if msgType == "trade_response" {
+					var response TradeResponse
+					if err := json.Unmarshal(buf[:n], &response); err != nil {
+						log.Printf("Failed to parse trade response: %v", err)
+						continue
+					}
+					s.responseChan <- response
+				} else if msgType == "balance_response" {
+					var response BalanceResponse
+					if err := json.Unmarshal(buf[:n], &response); err != nil {
+						log.Printf("Failed to parse balance response: %v", err)
+						continue
+					}
+					s.balanceChan <- response
+				}
+			}
 		}
 	}()
 
@@ -83,6 +110,14 @@ func (s *tradeService) StartUDPListener() error {
 		for response := range s.responseChan {
 			if err := s.HandleTradeResponse(response); err != nil {
 				log.Printf("Failed to handle trade response: %v", err)
+			}
+		}
+	}()
+
+	go func() {
+		for response := range s.balanceChan {
+			if err := s.handleBalanceResponse(response); err != nil {
+				log.Printf("Failed to handle balance response: %v", err)
 			}
 		}
 	}()
@@ -251,4 +286,61 @@ type TradeResponse struct {
 	Status         string `json:"status"`
 	MatchedTradeID string `json:"matched_trade_id"`
 	Timestamp      int64  `json:"timestamp"`
+}
+
+func (s *tradeService) RequestBalance(userID string) (float64, error) {
+	_, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return 0, errors.New("invalid user ID")
+	}
+
+	balanceRequest := map[string]interface{}{
+		"type":      "balance_request",
+		"user_id":   userID,
+		"timestamp": time.Now().Unix(),
+	}
+
+	data, err := json.Marshal(balanceRequest)
+	if err != nil {
+		return 0, err
+	}
+
+	conn, err := net.DialUDP("udp", nil, s.mt5UDPAddr)
+	if err != nil {
+		return 0, errors.New("failed to connect to MT5 UDP")
+	}
+	defer conn.Close()
+
+	_, err = conn.Write(data)
+	if err != nil {
+		return 0, errors.New("failed to send balance request")
+	}
+
+	select {
+	case response := <-s.balanceChan:
+		if response.UserID != userID {
+			return 0, errors.New("received balance response for wrong user")
+		}
+		if response.Error != "" {
+			return 0, errors.New(response.Error)
+		}
+		return response.Balance, nil
+	case <-time.After(5 * time.Second):
+		return 0, errors.New("timeout waiting for balance response")
+	}
+}
+
+func (s *tradeService) handleBalanceResponse(response BalanceResponse) error {
+	userObjID, err := primitive.ObjectIDFromHex(response.UserID)
+	if err != nil {
+		return errors.New("invalid user ID in balance response")
+	}
+
+	metadata := map[string]interface{}{
+		"user_id": response.UserID,
+		"balance": response.Balance,
+	}
+	s.logService.LogAction(userObjID, "BalanceUpdate", "User balance updated from MT5", "", metadata)
+
+	return nil
 }
