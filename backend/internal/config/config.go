@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Address string
 	Port    int
+	BaseURL string
 }
 
 func Load() (*Config, error) {
@@ -30,8 +31,14 @@ func Load() (*Config, error) {
 		address = "0.0.0.0"
 	}
 
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:" + portStr
+	}
+
 	return &Config{
 		Address: address,
 		Port:    port,
+		BaseURL: baseURL,
 	}, nil
 }
