@@ -18,7 +18,6 @@ func NewPriceHandler(priceService service.PriceService, logService service.LogSe
 	return &PriceHandler{priceService: priceService, logService: logService}
 }
 
-// HandlePrice processes new price data
 // @Summary Process new price data
 // @Description Receives and processes price data for a trading symbol
 // @Tags Prices

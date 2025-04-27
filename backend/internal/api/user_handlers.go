@@ -18,7 +18,6 @@ func NewUserHandler(userService service.UserService, logService service.LogServi
 	return &UserHandler{userService: userService, logService: logService}
 }
 
-// SignupUser creates a new user
 // @Summary Create a new user
 // @Description Registers a new user account
 // @Tags Users
@@ -50,7 +49,6 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"status": "User created", "user_id": user.ID.Hex()})
 }
 
-// GetUser retrieves a user by ID
 // @Summary Get user by ID
 // @Description Retrieves user account details by user ID
 // @Tags Users

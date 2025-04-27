@@ -117,6 +117,70 @@ definitions:
 info:
   contact: {}
 paths:
+  /admin/logs:
+    get:
+      description: Retrieves a list of all system logs (admin only)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.LogEntry'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to retrieve logs
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Get all logs
+      tags:
+      - Logs
+  /admin/logs/user/{user_id}:
+    get:
+      description: Retrieves logs associated with a specific user ID (admin only)
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.LogEntry'
+            type: array
+        "400":
+          description: Invalid user ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Get logs by user ID
+      tags:
+      - Logs
   /admin/rules:
     post:
       consumes:
@@ -144,12 +208,20 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Failed to create rule
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BasicAuth: []
       summary: Create a new rule
       tags:
       - Rules
@@ -171,12 +243,20 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Failed to delete rule
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BasicAuth: []
       summary: Delete a rule
       tags:
       - Rules
@@ -201,12 +281,20 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "404":
           description: Rule not found
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BasicAuth: []
       summary: Get rule by ID
       tags:
       - Rules
@@ -241,63 +329,150 @@ paths:
             additionalProperties:
               type: string
             type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Failed to update rule
           schema:
             additionalProperties:
               type: string
             type: object
+      security:
+      - BasicAuth: []
       summary: Update a rule
       tags:
       - Rules
-  /logs:
-    get:
-      description: Retrieves a list of all system logs (admin only)
+  /admin/symbols:
+    post:
+      consumes:
+      - application/json
+      description: Adds a new trading symbol to the system (admin only)
+      parameters:
+      - description: Symbol data
+        in: body
+        name: symbol
+        required: true
+        schema:
+          $ref: '#/definitions/models.Symbol'
       produces:
       - application/json
       responses:
-        "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/models.LogEntry'
-            type: array
-        "500":
-          description: Failed to retrieve logs
+        "201":
+          description: Symbol created
           schema:
             additionalProperties:
               type: string
             type: object
-      summary: Get all logs
+        "400":
+          description: Invalid JSON
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to create symbol
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Create a new symbol
       tags:
-      - Logs
-  /logs/user/{user_id}:
-    get:
-      description: Retrieves logs associated with a specific user ID (admin only)
+      - Symbols
+  /admin/symbols/{id}:
+    delete:
+      description: Removes a trading symbol from the system (admin only)
       parameters:
-      - description: User ID
+      - description: Symbol ID
         in: path
-        name: user_id
+        name: id
         required: true
         type: string
       produces:
       - application/json
       responses:
         "200":
-          description: OK
-          schema:
-            items:
-              $ref: '#/definitions/models.LogEntry'
-            type: array
-        "400":
-          description: Invalid user ID
+          description: Symbol deleted
           schema:
             additionalProperties:
               type: string
             type: object
-      summary: Get logs by user ID
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to delete symbol
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Delete a symbol
       tags:
-      - Logs
+      - Symbols
+    put:
+      consumes:
+      - application/json
+      description: Updates the details of an existing trading symbol (admin only)
+      parameters:
+      - description: Symbol ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated symbol data
+        in: body
+        name: symbol
+        required: true
+        schema:
+          $ref: '#/definitions/models.Symbol'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Symbol updated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to update symbol
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Update a symbol
+      tags:
+      - Symbols
   /prices:
     post:
       consumes:
@@ -376,68 +551,7 @@ paths:
       summary: Get all symbols
       tags:
       - Symbols
-    post:
-      consumes:
-      - application/json
-      description: Adds a new trading symbol to the system
-      parameters:
-      - description: Symbol data
-        in: body
-        name: symbol
-        required: true
-        schema:
-          $ref: '#/definitions/models.Symbol'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Symbol created
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Invalid JSON
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Failed to create symbol
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Create a new symbol
-      tags:
-      - Symbols
   /symbols/{id}:
-    delete:
-      description: Removes a trading symbol from the system
-      parameters:
-      - description: Symbol ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Symbol deleted
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Failed to delete symbol
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Delete a symbol
-      tags:
-      - Symbols
     get:
       description: Retrieves details of a trading symbol by ID
       parameters:
@@ -466,46 +580,6 @@ paths:
               type: string
             type: object
       summary: Get symbol by ID
-      tags:
-      - Symbols
-    put:
-      consumes:
-      - application/json
-      description: Updates the details of an existing trading symbol
-      parameters:
-      - description: Symbol ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: Updated symbol data
-        in: body
-        name: symbol
-        required: true
-        schema:
-          $ref: '#/definitions/models.Symbol'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Symbol updated
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Invalid JSON
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Failed to update symbol
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Update a symbol
       tags:
       - Symbols
   /users/{id}:

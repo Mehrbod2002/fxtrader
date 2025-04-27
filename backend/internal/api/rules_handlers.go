@@ -21,9 +21,11 @@ func NewRuleHandler(ruleService service.RuleService) *RuleHandler {
 // @Tags Rules
 // @Accept json
 // @Produce json
+// @Security BasicAuth
 // @Param rule body models.Rule true "Rule data"
 // @Success 201 {object} map[string]string "Rule created"
 // @Failure 400 {object} map[string]string "Invalid JSON or empty content"
+// @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 500 {object} map[string]string "Failed to create rule"
 // @Router /admin/rules [post]
 func (h *RuleHandler) CreateRule(c *gin.Context) {
@@ -50,9 +52,11 @@ func (h *RuleHandler) CreateRule(c *gin.Context) {
 // @Description Retrieves details of a rule by ID (admin only)
 // @Tags Rules
 // @Produce json
+// @Security BasicAuth
 // @Param id path string true "Rule ID"
 // @Success 200 {object} models.Rule
 // @Failure 400 {object} map[string]string "Invalid rule ID"
+// @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 404 {object} map[string]string "Rule not found"
 // @Router /admin/rules/{id} [get]
 func (h *RuleHandler) GetRule(c *gin.Context) {
@@ -69,7 +73,6 @@ func (h *RuleHandler) GetRule(c *gin.Context) {
 	c.JSON(http.StatusOK, rule)
 }
 
-// GetAllRules retrieves all rules
 // @Summary Get all rules
 // @Description Retrieves a list of all rules (accessible to all users)
 // @Tags Rules
@@ -91,10 +94,12 @@ func (h *RuleHandler) GetAllRules(c *gin.Context) {
 // @Tags Rules
 // @Accept json
 // @Produce json
+// @Security BasicAuth
 // @Param id path string true "Rule ID"
 // @Param rule body models.Rule true "Updated rule data"
 // @Success 200 {object} map[string]string "Rule updated"
 // @Failure 400 {object} map[string]string "Invalid JSON or empty content"
+// @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 500 {object} map[string]string "Failed to update rule"
 // @Router /admin/rules/{id} [put]
 func (h *RuleHandler) UpdateRule(c *gin.Context) {
@@ -121,8 +126,10 @@ func (h *RuleHandler) UpdateRule(c *gin.Context) {
 // @Description Removes a rule from the system (admin only)
 // @Tags Rules
 // @Produce json
+// @Security BasicAuth
 // @Param id path string true "Rule ID"
 // @Success 200 {object} map[string]string "Rule deleted"
+// @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 500 {object} map[string]string "Failed to delete rule"
 // @Router /admin/rules/{id} [delete]
 func (h *RuleHandler) DeleteRule(c *gin.Context) {

@@ -20,15 +20,17 @@ func NewSymbolHandler(symbolService service.SymbolService, logService service.Lo
 
 // CreateSymbol creates a new symbol
 // @Summary Create a new symbol
-// @Description Adds a new trading symbol to the system
+// @Description Adds a new trading symbol to the system (admin only)
 // @Tags Symbols
 // @Accept json
 // @Produce json
+// @Security BasicAuth
 // @Param symbol body models.Symbol true "Symbol data"
 // @Success 201 {object} map[string]string "Symbol created"
 // @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 500 {object} map[string]string "Failed to create symbol"
-// @Router /symbols [post]
+// @Router /admin/symbols [post]
 func (h *SymbolHandler) CreateSymbol(c *gin.Context) {
 	var symbol models.Symbol
 	if err := c.ShouldBindJSON(&symbol); err != nil {
@@ -71,7 +73,6 @@ func (h *SymbolHandler) GetSymbol(c *gin.Context) {
 		return
 	}
 
-	// Log the symbol retrieval action
 	metadata := map[string]interface{}{
 		"symbol_id": id,
 	}
@@ -95,23 +96,24 @@ func (h *SymbolHandler) GetAllSymbols(c *gin.Context) {
 		return
 	}
 
-	// Log the all symbols retrieval action
 	h.logService.LogAction(primitive.ObjectID{}, "GetAllSymbols", "All symbols retrieved", c.ClientIP(), nil)
 
 	c.JSON(http.StatusOK, symbols)
 }
 
 // @Summary Update a symbol
-// @Description Updates the details of an existing trading symbol
+// @Description Updates the details of an existing trading symbol (admin only)
 // @Tags Symbols
 // @Accept json
 // @Produce json
+// @Security BasicAuth
 // @Param id path string true "Symbol ID"
 // @Param symbol body models.Symbol true "Updated symbol data"
 // @Success 200 {object} map[string]string "Symbol updated"
 // @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 500 {object} map[string]string "Failed to update symbol"
-// @Router /symbols/{id} [put]
+// @Router /admin/symbols/{id} [put]
 func (h *SymbolHandler) UpdateSymbol(c *gin.Context) {
 	id := c.Param("id")
 	var symbol models.Symbol
@@ -134,13 +136,15 @@ func (h *SymbolHandler) UpdateSymbol(c *gin.Context) {
 }
 
 // @Summary Delete a symbol
-// @Description Removes a trading symbol from the system
+// @Description Removes a trading symbol from the system (admin only)
 // @Tags Symbols
 // @Produce json
+// @Security BasicAuth
 // @Param id path string true "Symbol ID"
 // @Success 200 {object} map[string]string "Symbol deleted"
+// @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 500 {object} map[string]string "Failed to delete symbol"
-// @Router /symbols/{id} [delete]
+// @Router /admin/symbols/{id} [delete]
 func (h *SymbolHandler) DeleteSymbol(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.symbolService.DeleteSymbol(id); err != nil {

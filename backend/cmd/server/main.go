@@ -10,7 +10,6 @@ import (
 	"fxtrader/internal/service"
 	"fxtrader/internal/ws"
 	"log"
-	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -24,11 +23,7 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	mongoURI := os.Getenv("MONGO_URI")
-	if mongoURI == "" {
-		mongoURI = "mongodb://127.0.0.1:27017"
-	}
-	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(mongoURI))
+	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(cfg.MongoURI))
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
@@ -40,42 +35,33 @@ func main() {
 		log.Fatalf("Failed to ping MongoDB: %v", err)
 	}
 
-	baseURL := os.Getenv("BASE_URL")
-	if baseURL == "" {
-		baseURL = fmt.Sprintf("http://localhost:%d", cfg.Port)
-	}
-
 	hub := ws.NewHub()
 	go hub.Run()
 
-	wsHandler := ws.NewWebSocketHandler(hub)
-
 	priceRepo := repository.NewPriceRepository()
-	priceService := service.NewPriceService(priceRepo, hub)
-
 	userRepo := repository.NewUserRepository(client, "fxtrader", "users")
-	userService := service.NewUserService(userRepo)
-
 	symbolRepo := repository.NewSymbolRepository(client, "fxtrader", "symbols")
-	symbolService := service.NewSymbolService(symbolRepo)
-
 	logRepo := repository.NewLogRepository(client, "fxtrader", "logs")
-	logService := service.NewLogService(logRepo)
-
 	ruleRepo := repository.NewRuleRepository(client, "fxtrader", "rules")
+
+	wsHandler := ws.NewWebSocketHandler(hub)
+	priceService := service.NewPriceService(priceRepo, hub)
+	userService := service.NewUserService(userRepo)
+	symbolService := service.NewSymbolService(symbolRepo)
+	logService := service.NewLogService(logRepo)
 	ruleService := service.NewRuleService(ruleRepo)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 
-	api.SetupRoutes(r, priceService, userService, symbolService, logService, ruleService, wsHandler, baseURL)
+	api.SetupRoutes(r, cfg, priceService, userService, symbolService, logService, ruleService, wsHandler, cfg.BaseURL)
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
-	log.Printf("Starting server on %s", addr)
-	log.Printf("WebSocket endpoint available at ws://%s/ws", baseURL)
-	log.Printf("Chart endpoint available at http://%s/chart?symbol=SYMBOL", baseURL)
-	log.Printf("Swagger UI available at http://%s/swagger/index.html", baseURL)
+	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
+	log.Printf("Starting server on http://%s", addr)
+	log.Printf("WebSocket endpoint available at ws://%s/ws", cfg.BaseURL)
+	log.Printf("Chart endpoint available at http://%s/chart?symbol=SYMBOL", cfg.BaseURL)
+	log.Printf("Swagger UI available at http://%s/swagger/index.html", cfg.BaseURL)
 
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

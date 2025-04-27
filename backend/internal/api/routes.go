@@ -1,6 +1,8 @@
 package api
 
 import (
+	"fxtrader/internal/config"
+	"fxtrader/internal/middleware"
 	"fxtrader/internal/service"
 	"fxtrader/internal/ws"
 	"os"
@@ -11,7 +13,14 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, wsHandler *ws.WebSocketHandler, baseURL string) {
+// @title FXTrader API
+// @version 1.0
+// @description API for the FXTrader app
+// @host localhost:8080
+// @BasePath /api
+// @schemes http
+// @securityDefinitions.basic BasicAuth
+func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceService, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, wsHandler *ws.WebSocketHandler, baseURL string) {
 	priceHandler := NewPriceHandler(priceService, logService)
 	userHandler := NewUserHandler(userService, logService)
 	symbolHandler := NewSymbolHandler(symbolService, logService)
@@ -24,7 +33,6 @@ func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService s
 	}
 
 	staticPath := filepath.Join(wd, "..", "..", "static")
-
 	r.Static("/static", staticPath)
 
 	r.GET("/chart", func(c *gin.Context) {
@@ -48,18 +56,22 @@ func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService s
 		v1.POST("/prices", priceHandler.HandlePrice)
 		v1.POST("/users/signup", userHandler.SignupUser)
 		v1.GET("/users/:id", userHandler.GetUser)
-		v1.POST("/symbols", symbolHandler.CreateSymbol)
-		v1.GET("/symbols/:id", symbolHandler.GetSymbol)
 		v1.GET("/symbols", symbolHandler.GetAllSymbols)
-		v1.PUT("/symbols/:id", symbolHandler.UpdateSymbol)
-		v1.DELETE("/symbols/:id", symbolHandler.DeleteSymbol)
-		v1.GET("/logs", logHandler.GetAllLogs)
-		v1.GET("/logs/user/:user_id", logHandler.GetLogsByUser)
+		v1.GET("/symbols/:id", symbolHandler.GetSymbol)
 		v1.GET("/rules", ruleHandler.GetAllRules)
-		v1.POST("/admin/rules", ruleHandler.CreateRule)
-		v1.GET("/admin/rules/:id", ruleHandler.GetRule)
-		v1.PUT("/admin/rules/:id", ruleHandler.UpdateRule)
-		v1.DELETE("/admin/rules/:id", ruleHandler.DeleteRule)
+
+		admin := v1.Group("/admin").Use(middleware.AdminAuthMiddleware(cfg))
+		{
+			admin.POST("/symbols", symbolHandler.CreateSymbol)
+			admin.PUT("/symbols/:id", symbolHandler.UpdateSymbol)
+			admin.DELETE("/symbols/:id", symbolHandler.DeleteSymbol)
+			admin.GET("/logs", logHandler.GetAllLogs)
+			admin.GET("/logs/user/:user_id", logHandler.GetLogsByUser)
+			admin.POST("/rules", ruleHandler.CreateRule)
+			admin.GET("/rules/:id", ruleHandler.GetRule)
+			admin.PUT("/rules/:id", ruleHandler.UpdateRule)
+			admin.DELETE("/rules/:id", ruleHandler.DeleteRule)
+		}
 	}
 
 	r.GET("/ws", wsHandler.HandleConnection)

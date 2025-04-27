@@ -6,4 +6,5 @@ package api
 // @host localhost:8080
 // @BasePath /api
 // @schemes http
+// @securityDefinitions.basic BasicAuth
 func init() {}

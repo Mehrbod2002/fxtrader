@@ -8,10 +8,12 @@ import (
 )
 
 type Config struct {
-	Address  string
-	Port     int
-	BaseURL  string
-	MongoURI string
+	Address   string
+	Port      int
+	BaseURL   string
+	MongoURI  string
+	AdminUser string
+	AdminPass string
 }
 
 func Load() (*Config, error) {
@@ -42,10 +44,22 @@ func Load() (*Config, error) {
 		mongoURI = "mongodb://127.0.0.1:27017"
 	}
 
+	adminUser := os.Getenv("ADMIN_USER")
+	if adminUser == "" {
+		adminUser = "admin"
+	}
+
+	adminPass := os.Getenv("ADMIN_PASS")
+	if adminPass == "" {
+		adminPass = "admin"
+	}
+
 	return &Config{
-		Address:  address,
-		Port:     port,
-		BaseURL:  baseURL,
-		MongoURI: mongoURI,
+		Address:   address,
+		Port:      port,
+		BaseURL:   baseURL,
+		MongoURI:  mongoURI,
+		AdminUser: adminUser,
+		AdminPass: adminPass,
 	}, nil
 }
