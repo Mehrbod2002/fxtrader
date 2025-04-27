@@ -18,6 +18,17 @@ func NewUserHandler(userService service.UserService, logService service.LogServi
 	return &UserHandler{userService: userService, logService: logService}
 }
 
+// SignupUser creates a new user
+// @Summary Create a new user
+// @Description Registers a new user account
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param user body models.UserAccount true "User account data"
+// @Success 201 {object} map[string]string "User created"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 500 {object} map[string]string "Failed to create user"
+// @Router /users/signup [post]
 func (h *UserHandler) SignupUser(c *gin.Context) {
 	var user models.UserAccount
 	if err := c.ShouldBindJSON(&user); err != nil {
@@ -39,6 +50,16 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"status": "User created", "user_id": user.ID.Hex()})
 }
 
+// GetUser retrieves a user by ID
+// @Summary Get user by ID
+// @Description Retrieves user account details by user ID
+// @Tags Users
+// @Produce json
+// @Param id path string true "User ID"
+// @Success 200 {object} models.UserAccount
+// @Failure 400 {object} map[string]string "Invalid user ID"
+// @Failure 404 {object} map[string]string "User not found"
+// @Router /users/{id} [get]
 func (h *UserHandler) GetUser(c *gin.Context) {
 	id := c.Param("id")
 	user, err := h.userService.GetUser(id)

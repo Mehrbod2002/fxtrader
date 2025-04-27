@@ -18,6 +18,17 @@ func NewPriceHandler(priceService service.PriceService, logService service.LogSe
 	return &PriceHandler{priceService: priceService, logService: logService}
 }
 
+// HandlePrice processes new price data
+// @Summary Process new price data
+// @Description Receives and processes price data for a trading symbol
+// @Tags Prices
+// @Accept json
+// @Produce json
+// @Param priceData body models.PriceData true "Price data"
+// @Success 200 {object} map[string]string "Price received"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 500 {object} map[string]string "Failed to process price"
+// @Router /prices [post]
 func (h *PriceHandler) HandlePrice(c *gin.Context) {
 	var priceData models.PriceData
 	if err := c.ShouldBindJSON(&priceData); err != nil {

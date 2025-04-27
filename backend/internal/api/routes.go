@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, wsHandler *ws.WebSocketHandler, baseURL string) {
@@ -33,6 +35,8 @@ func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService s
 		}
 		c.File(symbolFile)
 	})
+
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	v1 := r.Group("/api")
 	{

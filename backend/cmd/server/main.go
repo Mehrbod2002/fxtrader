@@ -75,6 +75,7 @@ func main() {
 	log.Printf("Starting server on %s", addr)
 	log.Printf("WebSocket endpoint available at ws://%s/ws", baseURL)
 	log.Printf("Chart endpoint available at http://%s/chart?symbol=SYMBOL", baseURL)
+	log.Printf("Swagger UI available at http://%s/swagger/index.html", baseURL)
 
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

@@ -18,6 +18,17 @@ func NewSymbolHandler(symbolService service.SymbolService, logService service.Lo
 	return &SymbolHandler{symbolService: symbolService, logService: logService}
 }
 
+// CreateSymbol creates a new symbol
+// @Summary Create a new symbol
+// @Description Adds a new trading symbol to the system
+// @Tags Symbols
+// @Accept json
+// @Produce json
+// @Param symbol body models.Symbol true "Symbol data"
+// @Success 201 {object} map[string]string "Symbol created"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 500 {object} map[string]string "Failed to create symbol"
+// @Router /symbols [post]
 func (h *SymbolHandler) CreateSymbol(c *gin.Context) {
 	var symbol models.Symbol
 	if err := c.ShouldBindJSON(&symbol); err != nil {
@@ -39,6 +50,15 @@ func (h *SymbolHandler) CreateSymbol(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"status": "Symbol created", "symbol_id": symbol.ID.Hex()})
 }
 
+// @Summary Get symbol by ID
+// @Description Retrieves details of a trading symbol by ID
+// @Tags Symbols
+// @Produce json
+// @Param id path string true "Symbol ID"
+// @Success 200 {object} models.Symbol
+// @Failure 400 {object} map[string]string "Invalid symbol ID"
+// @Failure 404 {object} map[string]string "Symbol not found"
+// @Router /symbols/{id} [get]
 func (h *SymbolHandler) GetSymbol(c *gin.Context) {
 	id := c.Param("id")
 	symbol, err := h.symbolService.GetSymbol(id)
@@ -51,6 +71,7 @@ func (h *SymbolHandler) GetSymbol(c *gin.Context) {
 		return
 	}
 
+	// Log the symbol retrieval action
 	metadata := map[string]interface{}{
 		"symbol_id": id,
 	}
@@ -59,6 +80,14 @@ func (h *SymbolHandler) GetSymbol(c *gin.Context) {
 	c.JSON(http.StatusOK, symbol)
 }
 
+// GetAllSymbols retrieves all symbols
+// @Summary Get all symbols
+// @Description Retrieves a list of all trading symbols
+// @Tags Symbols
+// @Produce json
+// @Success 200 {array} models.Symbol
+// @Failure 500 {object} map[string]string "Failed to retrieve symbols"
+// @Router /symbols [get]
 func (h *SymbolHandler) GetAllSymbols(c *gin.Context) {
 	symbols, err := h.symbolService.GetAllSymbols()
 	if err != nil {
@@ -66,11 +95,23 @@ func (h *SymbolHandler) GetAllSymbols(c *gin.Context) {
 		return
 	}
 
+	// Log the all symbols retrieval action
 	h.logService.LogAction(primitive.ObjectID{}, "GetAllSymbols", "All symbols retrieved", c.ClientIP(), nil)
 
 	c.JSON(http.StatusOK, symbols)
 }
 
+// @Summary Update a symbol
+// @Description Updates the details of an existing trading symbol
+// @Tags Symbols
+// @Accept json
+// @Produce json
+// @Param id path string true "Symbol ID"
+// @Param symbol body models.Symbol true "Updated symbol data"
+// @Success 200 {object} map[string]string "Symbol updated"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 500 {object} map[string]string "Failed to update symbol"
+// @Router /symbols/{id} [put]
 func (h *SymbolHandler) UpdateSymbol(c *gin.Context) {
 	id := c.Param("id")
 	var symbol models.Symbol
@@ -92,6 +133,14 @@ func (h *SymbolHandler) UpdateSymbol(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "Symbol updated"})
 }
 
+// @Summary Delete a symbol
+// @Description Removes a trading symbol from the system
+// @Tags Symbols
+// @Produce json
+// @Param id path string true "Symbol ID"
+// @Success 200 {object} map[string]string "Symbol deleted"
+// @Failure 500 {object} map[string]string "Failed to delete symbol"
+// @Router /symbols/{id} [delete]
 func (h *SymbolHandler) DeleteSymbol(c *gin.Context) {
 	id := c.Param("id")
 	if err := h.symbolService.DeleteSymbol(id); err != nil {

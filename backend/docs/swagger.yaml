@@ -1,0 +1,578 @@
+definitions:
+  models.LogEntry:
+    properties:
+      _id:
+        type: string
+      action:
+        type: string
+      description:
+        type: string
+      ip_address:
+        type: string
+      metadata:
+        additionalProperties: true
+        type: object
+      timestamp:
+        type: string
+      user_id:
+        type: string
+    type: object
+  models.PriceData:
+    properties:
+      ask:
+        type: number
+      bid:
+        type: number
+      symbol:
+        type: string
+      timestamp:
+        type: integer
+    type: object
+  models.Rule:
+    properties:
+      _id:
+        type: string
+      content:
+        type: string
+      created_at:
+        type: string
+    type: object
+  models.Symbol:
+    properties:
+      _id:
+        type: string
+      category:
+        type: string
+      commission:
+        type: number
+      created_at:
+        type: string
+      denied_accounts:
+        items:
+          type: string
+        type: array
+      display_name:
+        type: string
+      is_trading_open:
+        type: boolean
+      leverage:
+        type: integer
+      max_lot:
+        type: number
+      min_lot:
+        type: number
+      spread:
+        type: number
+      symbol_name:
+        type: string
+      trading_hours:
+        $ref: '#/definitions/models.TradingHours'
+      updated_at:
+        type: string
+    type: object
+  models.TradingHours:
+    properties:
+      close_time:
+        type: string
+      open_time:
+        type: string
+      unlimited:
+        type: boolean
+    type: object
+  models.UserAccount:
+    properties:
+      _id:
+        type: string
+      account_name:
+        type: string
+      account_type:
+        type: string
+      balance:
+        type: number
+      bonus:
+        type: number
+      card_number:
+        type: string
+      citizenship:
+        type: string
+      full_name:
+        type: string
+      leverage:
+        type: integer
+      national_id:
+        type: string
+      phone_number:
+        type: string
+      registration_date:
+        type: string
+      telegram_id:
+        type: string
+      trade_type:
+        type: string
+      username:
+        type: string
+      wallet_address:
+        type: string
+    type: object
+info:
+  contact: {}
+paths:
+  /admin/rules:
+    post:
+      consumes:
+      - application/json
+      description: Adds a new rule to the system (admin only)
+      parameters:
+      - description: Rule data
+        in: body
+        name: rule
+        required: true
+        schema:
+          $ref: '#/definitions/models.Rule'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Rule created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or empty content
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to create rule
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new rule
+      tags:
+      - Rules
+  /admin/rules/{id}:
+    delete:
+      description: Removes a rule from the system (admin only)
+      parameters:
+      - description: Rule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Rule deleted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to delete rule
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete a rule
+      tags:
+      - Rules
+    get:
+      description: Retrieves details of a rule by ID (admin only)
+      parameters:
+      - description: Rule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Rule'
+        "400":
+          description: Invalid rule ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Rule not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get rule by ID
+      tags:
+      - Rules
+    put:
+      consumes:
+      - application/json
+      description: Updates the content of an existing rule (admin only)
+      parameters:
+      - description: Rule ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated rule data
+        in: body
+        name: rule
+        required: true
+        schema:
+          $ref: '#/definitions/models.Rule'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Rule updated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or empty content
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to update rule
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update a rule
+      tags:
+      - Rules
+  /logs:
+    get:
+      description: Retrieves a list of all system logs (admin only)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.LogEntry'
+            type: array
+        "500":
+          description: Failed to retrieve logs
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get all logs
+      tags:
+      - Logs
+  /logs/user/{user_id}:
+    get:
+      description: Retrieves logs associated with a specific user ID (admin only)
+      parameters:
+      - description: User ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.LogEntry'
+            type: array
+        "400":
+          description: Invalid user ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get logs by user ID
+      tags:
+      - Logs
+  /prices:
+    post:
+      consumes:
+      - application/json
+      description: Receives and processes price data for a trading symbol
+      parameters:
+      - description: Price data
+        in: body
+        name: priceData
+        required: true
+        schema:
+          $ref: '#/definitions/models.PriceData'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Price received
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to process price
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Process new price data
+      tags:
+      - Prices
+  /rules:
+    get:
+      description: Retrieves a list of all rules (accessible to all users)
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Rule'
+            type: array
+        "500":
+          description: Failed to retrieve rules
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get all rules
+      tags:
+      - Rules
+  /symbols:
+    get:
+      description: Retrieves a list of all trading symbols
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Symbol'
+            type: array
+        "500":
+          description: Failed to retrieve symbols
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get all symbols
+      tags:
+      - Symbols
+    post:
+      consumes:
+      - application/json
+      description: Adds a new trading symbol to the system
+      parameters:
+      - description: Symbol data
+        in: body
+        name: symbol
+        required: true
+        schema:
+          $ref: '#/definitions/models.Symbol'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Symbol created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to create symbol
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new symbol
+      tags:
+      - Symbols
+  /symbols/{id}:
+    delete:
+      description: Removes a trading symbol from the system
+      parameters:
+      - description: Symbol ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Symbol deleted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to delete symbol
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete a symbol
+      tags:
+      - Symbols
+    get:
+      description: Retrieves details of a trading symbol by ID
+      parameters:
+      - description: Symbol ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Symbol'
+        "400":
+          description: Invalid symbol ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Symbol not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get symbol by ID
+      tags:
+      - Symbols
+    put:
+      consumes:
+      - application/json
+      description: Updates the details of an existing trading symbol
+      parameters:
+      - description: Symbol ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Updated symbol data
+        in: body
+        name: symbol
+        required: true
+        schema:
+          $ref: '#/definitions/models.Symbol'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Symbol updated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to update symbol
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update a symbol
+      tags:
+      - Symbols
+  /users/{id}:
+    get:
+      description: Retrieves user account details by user ID
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.UserAccount'
+        "400":
+          description: Invalid user ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: User not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get user by ID
+      tags:
+      - Users
+  /users/signup:
+    post:
+      consumes:
+      - application/json
+      description: Registers a new user account
+      parameters:
+      - description: User account data
+        in: body
+        name: user
+        required: true
+        schema:
+          $ref: '#/definitions/models.UserAccount'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: User created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to create user
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new user
+      tags:
+      - Users
+swagger: "2.0"
