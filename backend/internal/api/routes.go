@@ -9,9 +9,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService service.UserService, wsHandler *ws.WebSocketHandler, baseURL string) {
-	priceHandler := NewPriceHandler(priceService)
-	userHandler := NewUserHandler(userService)
+func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService service.UserService, symbolService service.SymbolService, logService service.LogService, wsHandler *ws.WebSocketHandler, baseURL string) {
+	priceHandler := NewPriceHandler(priceService, logService)
+	userHandler := NewUserHandler(userService, logService)
+	symbolHandler := NewSymbolHandler(symbolService, logService)
+	logHandler := NewLogHandler(logService)
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -36,6 +38,13 @@ func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService s
 		v1.POST("/prices", priceHandler.HandlePrice)
 		v1.POST("/users/signup", userHandler.SignupUser)
 		v1.GET("/users/:id", userHandler.GetUser)
+		v1.POST("/symbols", symbolHandler.CreateSymbol)
+		v1.GET("/symbols/:id", symbolHandler.GetSymbol)
+		v1.GET("/symbols", symbolHandler.GetAllSymbols)
+		v1.PUT("/symbols/:id", symbolHandler.UpdateSymbol)
+		v1.DELETE("/symbols/:id", symbolHandler.DeleteSymbol)
+		v1.GET("/logs", logHandler.GetAllLogs)
+		v1.GET("/logs/user/:user_id", logHandler.GetLogsByUser)
 	}
 
 	r.GET("/ws", wsHandler.HandleConnection)

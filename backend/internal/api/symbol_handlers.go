@@ -6,14 +6,16 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type SymbolHandler struct {
 	symbolService service.SymbolService
+	logService    service.LogService
 }
 
-func NewSymbolHandler(symbolService service.SymbolService) *SymbolHandler {
-	return &SymbolHandler{symbolService: symbolService}
+func NewSymbolHandler(symbolService service.SymbolService, logService service.LogService) *SymbolHandler {
+	return &SymbolHandler{symbolService: symbolService, logService: logService}
 }
 
 func (h *SymbolHandler) CreateSymbol(c *gin.Context) {
@@ -27,6 +29,12 @@ func (h *SymbolHandler) CreateSymbol(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create symbol"})
 		return
 	}
+
+	metadata := map[string]interface{}{
+		"symbol_id":   symbol.ID.Hex(),
+		"symbol_name": symbol.SymbolName,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "CreateSymbol", "Symbol created", c.ClientIP(), metadata)
 
 	c.JSON(http.StatusCreated, gin.H{"status": "Symbol created", "symbol_id": symbol.ID.Hex()})
 }
@@ -42,6 +50,12 @@ func (h *SymbolHandler) GetSymbol(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Symbol not found"})
 		return
 	}
+
+	metadata := map[string]interface{}{
+		"symbol_id": id,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "GetSymbol", "Symbol data retrieved", c.ClientIP(), metadata)
+
 	c.JSON(http.StatusOK, symbol)
 }
 
@@ -51,6 +65,9 @@ func (h *SymbolHandler) GetAllSymbols(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve symbols"})
 		return
 	}
+
+	h.logService.LogAction(primitive.ObjectID{}, "GetAllSymbols", "All symbols retrieved", c.ClientIP(), nil)
+
 	c.JSON(http.StatusOK, symbols)
 }
 
@@ -66,6 +83,12 @@ func (h *SymbolHandler) UpdateSymbol(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update symbol"})
 		return
 	}
+
+	metadata := map[string]interface{}{
+		"symbol_id": id,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "UpdateSymbol", "Symbol updated", c.ClientIP(), metadata)
+
 	c.JSON(http.StatusOK, gin.H{"status": "Symbol updated"})
 }
 
@@ -75,5 +98,11 @@ func (h *SymbolHandler) DeleteSymbol(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete symbol"})
 		return
 	}
+
+	metadata := map[string]interface{}{
+		"symbol_id": id,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "DeleteSymbol", "Symbol deleted", c.ClientIP(), metadata)
+
 	c.JSON(http.StatusOK, gin.H{"status": "Symbol deleted"})
 }

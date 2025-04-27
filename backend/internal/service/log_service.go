@@ -1,0 +1,45 @@
+package service
+
+import (
+	"fxtrader/internal/models"
+	"fxtrader/internal/repository"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type LogService interface {
+	LogAction(userID primitive.ObjectID, action, description, ipAddress string, metadata map[string]interface{}) error
+	GetAllLogs() ([]*models.LogEntry, error)
+	GetLogsByUserID(userID string) ([]*models.LogEntry, error)
+}
+
+type logService struct {
+	logRepo repository.LogRepository
+}
+
+func NewLogService(logRepo repository.LogRepository) LogService {
+	return &logService{logRepo: logRepo}
+}
+
+func (s *logService) LogAction(userID primitive.ObjectID, action, description, ipAddress string, metadata map[string]interface{}) error {
+	logEntry := &models.LogEntry{
+		UserID:      userID,
+		Action:      action,
+		Description: description,
+		IPAddress:   ipAddress,
+		Metadata:    metadata,
+	}
+	return s.logRepo.SaveLog(logEntry)
+}
+
+func (s *logService) GetAllLogs() ([]*models.LogEntry, error) {
+	return s.logRepo.GetAllLogs()
+}
+
+func (s *logService) GetLogsByUserID(userID string) ([]*models.LogEntry, error) {
+	objID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.logRepo.GetLogsByUserID(objID)
+}
