@@ -81,7 +81,6 @@ func (h *WebSocketHandler) readPump(client *models.Client) {
 		switch socketMsg.Action {
 		case "subscribe":
 			client.Subscribe(socketMsg.Symbol)
-			log.Printf("Client %s subscribed to %s", client.ID, socketMsg.Symbol)
 
 			var symbols []string
 			for symbol := range client.Symbols {
@@ -97,7 +96,6 @@ func (h *WebSocketHandler) readPump(client *models.Client) {
 
 		case "unsubscribe":
 			client.Unsubscribe(socketMsg.Symbol)
-			log.Printf("Client %s unsubscribed from %s", client.ID, socketMsg.Symbol)
 
 			var symbols []string
 			for symbol := range client.Symbols {
