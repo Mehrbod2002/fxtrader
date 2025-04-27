@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type TradeHandler struct {
@@ -18,17 +19,17 @@ func NewTradeHandler(tradeService service.TradeService, logService service.LogSe
 }
 
 // @Summary Place a new trade
-// @Description Allows a user to place a trade order
+// @Description Allows an authenticated user to place a trade order
 // @Tags Trades
 // @Accept json
 // @Produce json
-// @Security BasicAuth
+// @Security BearerAuth
 // @Param trade body TradeRequest true "Trade order data"
 // @Success 201 {object} map[string]string "Trade placed"
 // @Failure 400 {object} map[string]string "Invalid JSON or parameters"
 // @Failure 401 {object} map[string]string "Unauthorized"
-// @Failure 500 {object} map[string]string "Failed to place trade"
-// @Router /trades [post]
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/trades [post]
 func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 	var req TradeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -36,29 +37,69 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("user_id") // Set by auth middleware
+	userID := c.GetString("user_id")
 	trade, err := h.tradeService.PlaceTrade(userID, req.SymbolName, req.TradeType, req.Leverage, req.Volume, req.EntryPrice)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
+	metadata := map[string]interface{}{
+		"user_id":    userID,
+		"trade_id":   trade.ID.Hex(),
+		"symbol":     req.SymbolName,
+		"trade_type": req.TradeType,
+	}
+	h.logService.LogAction(trade.UserID, "PlaceTrade", "Trade order placed", c.ClientIP(), metadata)
+
 	c.JSON(http.StatusCreated, gin.H{"status": "Trade placed", "trade_id": trade.ID.Hex()})
 }
 
-// @Summary Get trade by ID
-// @Description Retrieves details of a trade by ID
+// @Summary Get user trades
+// @Description Retrieves a list of trades for the authenticated user
 // @Tags Trades
 // @Produce json
-// @Security BasicAuth
+// @Security BearerAuth
+// @Success 200 {array} models.TradeHistory
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/trades [get]
+func (h *TradeHandler) GetUserTrades(c *gin.Context) {
+	userID := c.GetString("user_id")
+	trades, err := h.tradeService.GetTradesByUserID(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve trades"})
+		return
+	}
+
+	userObjID, _ := primitive.ObjectIDFromHex(userID)
+	metadata := map[string]interface{}{
+		"user_id": userID,
+		"count":   len(trades),
+	}
+	h.logService.LogAction(userObjID, "GetUserTrades", "Retrieved user trades", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, trades)
+}
+
+// @Summary Get trade by ID
+// @Description Retrieves details of a specific trade by its ID (user or admin)
+// @Tags Trades
+// @Produce json
+// @Security BearerAuth
 // @Param id path string true "Trade ID"
 // @Success 200 {object} models.TradeHistory
 // @Failure 400 {object} map[string]string "Invalid trade ID"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 403 {object} map[string]string "Forbidden (trade belongs to another user)"
 // @Failure 404 {object} map[string]string "Trade not found"
-// @Router /trades/{id} [get]
+// @Router /api/trades/{id} [get]
 func (h *TradeHandler) GetTrade(c *gin.Context) {
-	id := c.Param("id")
-	trade, err := h.tradeService.GetTrade(id)
+	tradeID := c.Param("id")
+	userID := c.GetString("user_id")
+	isAdmin := c.GetBool("is_admin")
+
+	trade, err := h.tradeService.GetTrade(tradeID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid trade ID"})
 		return
@@ -67,25 +108,79 @@ func (h *TradeHandler) GetTrade(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Trade not found"})
 		return
 	}
+
+	if !isAdmin && trade.UserID.Hex() != userID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden (trade belongs to another user)"})
+		return
+	}
+
+	userObjID, _ := primitive.ObjectIDFromHex(userID)
+	metadata := map[string]interface{}{
+		"user_id":  userID,
+		"trade_id": tradeID,
+		"is_admin": isAdmin,
+	}
+	h.logService.LogAction(userObjID, "GetTrade", "Trade data retrieved", c.ClientIP(), metadata)
+
 	c.JSON(http.StatusOK, trade)
 }
 
-// @Summary Get user trades
-// @Description Retrieves all trades for the authenticated user
+// @Summary Handle trade response from MT5
+// @Description Processes trade response from MT5 EA
 // @Tags Trades
+// @Accept json
 // @Produce json
-// @Security BasicAuth
-// @Success 200 {array} models.TradeHistory
-// @Failure 400 {object} map[string]string "Invalid user ID"
-// @Failure 500 {object} map[string]string "Failed to retrieve trades"
-// @Router /trades [get]
-func (h *TradeHandler) GetUserTrades(c *gin.Context) {
-	userID := c.GetString("user_id")
-	trades, err := h.tradeService.GetTradesByUserID(userID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+// @Param response body service.TradeResponse true "Trade response data"
+// @Success 200 {object} map[string]string "Response processed"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/trade-response [post]
+func (h *TradeHandler) HandleTradeResponse(c *gin.Context) {
+	var response service.TradeResponse
+	if err := c.ShouldBindJSON(&response); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
+
+	if err := h.tradeService.HandleTradeResponse(response); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "Response processed"})
+}
+
+// @Summary Get all trades
+// @Description Retrieves a list of all trades (admin only)
+// @Tags Trades
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.TradeHistory
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 403 {object} map[string]string "Forbidden (non-admin)"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/v1/admin/trades [get]
+func (h *TradeHandler) GetAllTrades(c *gin.Context) {
+	isAdmin := c.GetBool("is_admin")
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden (non-admin)"})
+		return
+	}
+
+	trades, err := h.tradeService.GetAllTrades()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve trades"})
+		return
+	}
+
+	userID := c.GetString("user_id")
+	userObjID, _ := primitive.ObjectIDFromHex(userID)
+	metadata := map[string]interface{}{
+		"admin_id": userID,
+		"count":    len(trades),
+	}
+	h.logService.LogAction(userObjID, "GetAllTrades", "Retrieved all trades", c.ClientIP(), metadata)
+
 	c.JSON(http.StatusOK, trades)
 }
 

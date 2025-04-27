@@ -111,6 +111,41 @@ func (h *TransactionHandler) GetTransactionsByUser(c *gin.Context) {
 	c.JSON(http.StatusOK, transactions)
 }
 
+// @Summary Get transaction by ID
+// @Description Retrieves details of a specific transaction by its ID (admin only)
+// @Tags Transactions
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Transaction ID"
+// @Success 200 {object} models.Transaction
+// @Failure 400 {object} map[string]string "Invalid transaction ID"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 403 {object} map[string]string "Forbidden (non-admin)"
+// @Failure 404 {object} map[string]string "Transaction not found"
+// @Router /api/v1/transactions/{id} [get]
+func (h *TransactionHandler) GetTransactionByID(c *gin.Context) {
+	transactionID := c.Param("id")
+	transaction, err := h.transactionService.GetTransactionByID(transactionID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid transaction ID"})
+		return
+	}
+	if transaction == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
+		return
+	}
+
+	adminID := c.GetString("user_id")
+	adminObjID, _ := primitive.ObjectIDFromHex(adminID)
+	metadata := map[string]interface{}{
+		"admin_id":       adminID,
+		"transaction_id": transactionID,
+	}
+	h.logService.LogAction(adminObjID, "GetTransactionByID", "Transaction data retrieved", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, transaction)
+}
+
 // @Summary Review a transaction
 // @Description Approves or rejects a transaction with an optional note (admin only)
 // @Tags Transactions

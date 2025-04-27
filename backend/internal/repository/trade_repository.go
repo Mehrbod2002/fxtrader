@@ -14,6 +14,7 @@ type TradeRepository interface {
 	SaveTrade(trade *models.TradeHistory) error
 	GetTradeByID(id primitive.ObjectID) (*models.TradeHistory, error)
 	GetTradesByUserID(userID primitive.ObjectID) ([]*models.TradeHistory, error)
+	GetAllTrades() ([]*models.TradeHistory, error)
 }
 
 type MongoTradeRepository struct {
@@ -57,6 +58,23 @@ func (r *MongoTradeRepository) GetTradesByUserID(userID primitive.ObjectID) ([]*
 		return nil, err
 	}
 	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &trades); err != nil {
+		return nil, err
+	}
+	return trades, nil
+}
+
+func (r *MongoTradeRepository) GetAllTrades() ([]*models.TradeHistory, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cursor, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var trades []*models.TradeHistory
 	if err := cursor.All(ctx, &trades); err != nil {
 		return nil, err
 	}

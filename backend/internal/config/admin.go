@@ -11,11 +11,11 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func EnsureAdminUser(userRepo repository.UserRepository, adminUser, adminPass string) error {
+func EnsureAdminUser(adminRepo repository.AdminRepository, adminUser, adminPass string) error {
 	_, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	user, err := userRepo.GetUserByTelegramID("admin_" + adminUser)
+	user, err := adminRepo.GetAdminByUsername(adminUser)
 	if err == nil && user != nil {
 		log.Println("Admin user already exists")
 		return nil
@@ -26,17 +26,15 @@ func EnsureAdminUser(userRepo repository.UserRepository, adminUser, adminPass st
 		return err
 	}
 
-	admin := &models.UserAccount{
+	admin := &models.AdminAccount{
 		ID:               primitive.NewObjectID(),
 		Username:         adminUser,
-		FullName:         "Admin User",
+		Password:         string(hashedPassword),
 		AccountType:      "admin",
 		RegistrationDate: time.Now().Format(time.RFC3339),
-		TelegramID:       "admin_" + adminUser,
-		Password:         string(hashedPassword),
 	}
 
-	err = userRepo.SaveUser(admin)
+	err = adminRepo.SaveAdmin(admin)
 	if err != nil {
 		return err
 	}

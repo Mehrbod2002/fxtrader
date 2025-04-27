@@ -1,5 +1,6 @@
 package service
 
+// package service
 import (
 	"fxtrader/internal/models"
 	"fxtrader/internal/repository"
@@ -12,6 +13,7 @@ type UserService interface {
 	SignupUser(user *models.UserAccount) error
 	GetUser(id string) (*models.UserAccount, error)
 	GetUserByTelegramID(telegramID string) (*models.UserAccount, error)
+	GetAllUsers() ([]*models.UserAccount, error)
 }
 
 type userService struct {
@@ -23,8 +25,12 @@ func NewUserService(userRepo repository.UserRepository) UserService {
 }
 
 func (s *userService) SignupUser(user *models.UserAccount) error {
-	user.ID = primitive.NewObjectID()
-	user.RegistrationDate = time.Now().Format(time.RFC3339)
+	if user.ID.IsZero() {
+		user.ID = primitive.NewObjectID()
+	}
+	if user.RegistrationDate == "" {
+		user.RegistrationDate = time.Now().Format(time.RFC3339)
+	}
 	return s.userRepo.SaveUser(user)
 }
 
@@ -38,4 +44,8 @@ func (s *userService) GetUser(id string) (*models.UserAccount, error) {
 
 func (s *userService) GetUserByTelegramID(telegramID string) (*models.UserAccount, error) {
 	return s.userRepo.GetUserByTelegramID(telegramID)
+}
+
+func (s *userService) GetAllUsers() ([]*models.UserAccount, error) {
+	return s.userRepo.GetAllUsers()
 }

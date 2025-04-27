@@ -1,12 +1,14 @@
 package service
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"fxtrader/internal/models"
 	"fxtrader/internal/repository"
-	"net/http"
+	"log"
+	"net"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -15,40 +17,93 @@ type TradeService interface {
 	PlaceTrade(userID, symbolName string, tradeType models.TradeType, leverage int, volume, entryPrice float64) (*models.TradeHistory, error)
 	GetTrade(id string) (*models.TradeHistory, error)
 	GetTradesByUserID(userID string) ([]*models.TradeHistory, error)
+	GetAllTrades() ([]*models.TradeHistory, error)
+	HandleTradeResponse(response TradeResponse) error
+	StartUDPListener() error
 }
 
 type tradeService struct {
-	tradeRepo   repository.TradeRepository
-	symbolRepo  repository.SymbolRepository
-	logService  LogService
-	mt5Endpoint string // URL for MT5 trade API
+	tradeRepo     repository.TradeRepository
+	symbolRepo    repository.SymbolRepository
+	logService    LogService
+	udpConn       *net.UDPConn
+	mt5UDPAddr    *net.UDPAddr
+	listenUDPAddr *net.UDPAddr
+	responseChan  chan TradeResponse
 }
 
-func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, logService LogService, mt5Endpoint string) TradeService {
-	return &tradeService{
-		tradeRepo:   tradeRepo,
-		symbolRepo:  symbolRepo,
-		logService:  logService,
-		mt5Endpoint: mt5Endpoint, // e.g., "http://mt5-server:8080/trade"
+func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, logService LogService, mt5Host string, mt5Port, listenPort int) (TradeService, error) {
+	mt5Addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", mt5Host, mt5Port))
+	if err != nil {
+		return nil, err
 	}
+	listenAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", listenPort))
+	if err != nil {
+		return nil, err
+	}
+
+	return &tradeService{
+		tradeRepo:     tradeRepo,
+		symbolRepo:    symbolRepo,
+		logService:    logService,
+		mt5UDPAddr:    mt5Addr,
+		listenUDPAddr: listenAddr,
+		responseChan:  make(chan TradeResponse, 100),
+	}, nil
+}
+
+func (s *tradeService) StartUDPListener() error {
+	conn, err := net.ListenUDP("udp", s.listenUDPAddr)
+	if err != nil {
+		return err
+	}
+	s.udpConn = conn
+
+	go func() {
+		defer conn.Close()
+		buf := make([]byte, 4096)
+		for {
+			n, _, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				log.Printf("UDP read error: %v", err)
+				continue
+			}
+
+			var response TradeResponse
+			if err := json.Unmarshal(buf[:n], &response); err != nil {
+				log.Printf("Failed to parse UDP response: %v", err)
+				continue
+			}
+
+			s.responseChan <- response
+		}
+	}()
+
+	go func() {
+		for response := range s.responseChan {
+			if err := s.HandleTradeResponse(response); err != nil {
+				log.Printf("Failed to handle trade response: %v", err)
+			}
+		}
+	}()
+
+	return nil
 }
 
 func (s *tradeService) PlaceTrade(userID, symbolName string, tradeType models.TradeType, leverage int, volume, entryPrice float64) (*models.TradeHistory, error) {
-	// Validate user ID
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return nil, errors.New("invalid user ID")
 	}
 
-	// Check if symbol exists
 	symbols, err := s.symbolRepo.GetAllSymbols()
 	if err != nil {
 		return nil, errors.New("failed to fetch symbols")
 	}
 	var symbol *models.Symbol
-	for _, s := range symbols {
-		if s.SymbolName == symbolName {
-			symbol = s
+	for _, sym := range symbols {
+		if sym.SymbolName == symbolName {
+			symbol = sym
 			break
 		}
 	}
@@ -56,7 +111,6 @@ func (s *tradeService) PlaceTrade(userID, symbolName string, tradeType models.Tr
 		return nil, errors.New("symbol not found")
 	}
 
-	// Validate trade parameters
 	if tradeType != models.TradeTypeBuy && tradeType != models.TradeTypeSell {
 		return nil, errors.New("invalid trade type")
 	}
@@ -67,30 +121,28 @@ func (s *tradeService) PlaceTrade(userID, symbolName string, tradeType models.Tr
 		return nil, errors.New("leverage exceeds symbol limit")
 	}
 
-	// Create trade record
 	trade := &models.TradeHistory{
+		ID:         primitive.NewObjectID(),
 		UserID:     userObjID,
 		SymbolName: symbolName,
 		TradeType:  tradeType,
 		Leverage:   leverage,
 		Volume:     volume,
 		EntryPrice: entryPrice,
-		Status:     "PENDING",
+		OpenTime:   time.Now(),
+		Status:     models.TradeStatusPending,
 	}
 
-	// Send trade to MT5
 	err = s.sendTradeToMT5(trade)
 	if err != nil {
 		return nil, err
 	}
 
-	// Save trade to database
 	err = s.tradeRepo.SaveTrade(trade)
 	if err != nil {
 		return nil, err
 	}
 
-	// Log the action
 	metadata := map[string]interface{}{
 		"trade_id":    trade.ID.Hex(),
 		"symbol_name": symbolName,
@@ -105,7 +157,6 @@ func (s *tradeService) PlaceTrade(userID, symbolName string, tradeType models.Tr
 }
 
 func (s *tradeService) sendTradeToMT5(trade *models.TradeHistory) error {
-	// Prepare trade request for MT5
 	tradeRequest := map[string]interface{}{
 		"trade_id":    trade.ID.Hex(),
 		"user_id":     trade.UserID.Hex(),
@@ -122,19 +173,55 @@ func (s *tradeService) sendTradeToMT5(trade *models.TradeHistory) error {
 		return err
 	}
 
-	// Send to MT5 (replace with actual MT5 API endpoint)
-	resp, err := http.Post(s.mt5Endpoint, "application/json", bytes.NewBuffer(data))
+	conn, err := net.DialUDP("udp", nil, s.mt5UDPAddr)
+	if err != nil {
+		return errors.New("failed to connect to MT5 UDP")
+	}
+	defer conn.Close()
+
+	_, err = conn.Write(data)
+	if err != nil {
+		return errors.New("failed to send trade request")
+	}
+
+	return nil
+}
+
+func (s *tradeService) HandleTradeResponse(response TradeResponse) error {
+	tradeID, err := primitive.ObjectIDFromHex(response.TradeID)
+	if err != nil {
+		return errors.New("invalid trade ID")
+	}
+
+	trade, err := s.tradeRepo.GetTradeByID(tradeID)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return errors.New("failed to send trade to MT5")
+	if trade == nil {
+		return errors.New("trade not found")
 	}
 
-	// Update trade status based on MT5 response (simplified)
-	trade.Status = "OPEN"
+	if response.Status == "MATCHED" {
+		trade.Status = models.TradeStatusOpen
+		trade.ID, _ = primitive.ObjectIDFromHex(response.MatchedTradeID)
+	} else if response.Status == "PENDING" {
+		trade.Status = models.TradeStatusPending
+	} else {
+		trade.Status = models.TradeStatusClosed
+	}
+
+	err = s.tradeRepo.SaveTrade(trade)
+	if err != nil {
+		return err
+	}
+
+	metadata := map[string]interface{}{
+		"trade_id":         response.TradeID,
+		"status":           response.Status,
+		"matched_trade_id": response.MatchedTradeID,
+	}
+	s.logService.LogAction(trade.UserID, "TradeResponse", "Trade status updated", "", metadata)
+
 	return nil
 }
 
@@ -152,4 +239,16 @@ func (s *tradeService) GetTradesByUserID(userID string) ([]*models.TradeHistory,
 		return nil, err
 	}
 	return s.tradeRepo.GetTradesByUserID(objID)
+}
+
+func (s *tradeService) GetAllTrades() ([]*models.TradeHistory, error) {
+	return s.tradeRepo.GetAllTrades()
+}
+
+type TradeResponse struct {
+	TradeID        string `json:"trade_id"`
+	UserID         string `json:"user_id"`
+	Status         string `json:"status"`
+	MatchedTradeID string `json:"matched_trade_id"`
+	Timestamp      int64  `json:"timestamp"`
 }

@@ -11,7 +11,7 @@ import (
 
 type TransactionService interface {
 	CreateTransaction(userID string, transaction *models.Transaction) error
-	GetTransaction(id string) (*models.Transaction, error)
+	GetTransactionByID(id string) (*models.Transaction, error)
 	GetTransactionsByUserID(userID string) ([]*models.Transaction, error)
 	GetAllTransactions() ([]*models.Transaction, error)
 	ReviewTransaction(id string, status models.TransactionStatus, adminNote string) error
@@ -67,7 +67,7 @@ func (s *transactionService) CreateTransaction(userID string, transaction *model
 	return nil
 }
 
-func (s *transactionService) GetTransaction(id string) (*models.Transaction, error) {
+func (s *transactionService) GetTransactionByID(id string) (*models.Transaction, error) {
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return nil, errors.New("invalid transaction ID")

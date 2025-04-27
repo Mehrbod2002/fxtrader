@@ -49,8 +49,9 @@ func main() {
 	ruleRepo := repository.NewRuleRepository(client, "fxtrader", "rules")
 	tradeRepo := repository.NewTradeRepository(client, "fxtrader", "trades")
 	transactionRepo := repository.NewTransactionRepository(client, "fxtrader", "transactions")
+	adminRepo := repository.NewAdminRepository(client, "fxtrader", "admins")
 
-	if err := config.EnsureAdminUser(userRepo, cfg.AdminUser, cfg.AdminPass); err != nil {
+	if err := config.EnsureAdminUser(adminRepo, cfg.AdminUser, cfg.AdminPass); err != nil {
 		log.Fatalf("Failed to ensure admin user: %v", err)
 	}
 
@@ -60,14 +61,17 @@ func main() {
 	symbolService := service.NewSymbolService(symbolRepo)
 	logService := service.NewLogService(logRepo)
 	ruleService := service.NewRuleService(ruleRepo)
-	tradeService := service.NewTradeService(tradeRepo, symbolRepo, logService, cfg.MT5Endpoint)
+	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, logService, cfg.MT5Host, cfg.MT5Port, cfg.ListenPort)
+	if err != nil {
+		log.Fatalf("Failed to initialize trade service: %v", err)
+	}
 	transactionService := service.NewTransactionService(transactionRepo, logService)
 
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 
-	api.SetupRoutes(r, cfg, priceService, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, cfg.BaseURL)
+	api.SetupRoutes(r, cfg, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, cfg.BaseURL)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
 	log.Printf("Starting server on http://%s", addr)

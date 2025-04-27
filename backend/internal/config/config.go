@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"strconv"
 
@@ -8,13 +9,16 @@ import (
 )
 
 type Config struct {
-	Address   string
-	Port      int
-	BaseURL   string
-	MongoURI  string
-	AdminUser string
-	AdminPass string
-	JWTSecret string
+	Address    string
+	Port       int
+	BaseURL    string
+	MongoURI   string
+	AdminUser  string
+	AdminPass  string
+	JWTSecret  string
+	MT5Host    string
+	MT5Port    int
+	ListenPort int
 }
 
 func Load() (*Config, error) {
@@ -24,10 +28,9 @@ func Load() (*Config, error) {
 	if portStr == "" {
 		portStr = "8080"
 	}
-
 	port, err := strconv.Atoi(portStr)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("invalid PORT value")
 	}
 
 	address := os.Getenv("ADDRESS")
@@ -60,13 +63,39 @@ func Load() (*Config, error) {
 		jwtSecret = "default_jwt_secret"
 	}
 
+	mt5Host := os.Getenv("MT5_HOST")
+	if mt5Host == "" {
+		mt5Host = "127.0.0.1"
+	}
+
+	mt5PortStr := os.Getenv("MT5_PORT")
+	if mt5PortStr == "" {
+		mt5PortStr = "5000"
+	}
+	mt5Port, err := strconv.Atoi(mt5PortStr)
+	if err != nil {
+		return nil, errors.New("invalid MT5_PORT value")
+	}
+
+	listenPortStr := os.Getenv("LISTEN_PORT")
+	if listenPortStr == "" {
+		listenPortStr = "5001"
+	}
+	listenPort, err := strconv.Atoi(listenPortStr)
+	if err != nil {
+		return nil, errors.New("invalid LISTEN_PORT value")
+	}
+
 	return &Config{
-		Address:   address,
-		Port:      port,
-		BaseURL:   baseURL,
-		MongoURI:  mongoURI,
-		AdminUser: adminUser,
-		AdminPass: adminPass,
-		JWTSecret: jwtSecret,
+		Address:    address,
+		Port:       port,
+		BaseURL:    baseURL,
+		MongoURI:   mongoURI,
+		AdminUser:  adminUser,
+		AdminPass:  adminPass,
+		JWTSecret:  jwtSecret,
+		MT5Host:    mt5Host,
+		MT5Port:    mt5Port,
+		ListenPort: listenPort,
 	}, nil
 }

@@ -1,5 +1,7 @@
 package repository
 
+// package repository
+// (No changes needed; provided for reference)
 import (
 	"context"
 	"fxtrader/internal/models"
@@ -14,6 +16,7 @@ type UserRepository interface {
 	SaveUser(user *models.UserAccount) error
 	GetUserByID(id primitive.ObjectID) (*models.UserAccount, error)
 	GetUserByTelegramID(telegramID string) (*models.UserAccount, error)
+	GetAllUsers() ([]*models.UserAccount, error)
 }
 
 type MongoUserRepository struct {
@@ -61,4 +64,21 @@ func (r *MongoUserRepository) GetUserByTelegramID(telegramID string) (*models.Us
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (r *MongoUserRepository) GetAllUsers() ([]*models.UserAccount, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cursor, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var users []*models.UserAccount
+	if err := cursor.All(ctx, &users); err != nil {
+		return nil, err
+	}
+	return users, nil
 }
