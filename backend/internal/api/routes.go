@@ -9,11 +9,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService service.UserService, symbolService service.SymbolService, logService service.LogService, wsHandler *ws.WebSocketHandler, baseURL string) {
+func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, wsHandler *ws.WebSocketHandler, baseURL string) {
 	priceHandler := NewPriceHandler(priceService, logService)
 	userHandler := NewUserHandler(userService, logService)
 	symbolHandler := NewSymbolHandler(symbolService, logService)
 	logHandler := NewLogHandler(logService)
+	ruleHandler := NewRuleHandler(ruleService)
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -45,6 +46,11 @@ func SetupRoutes(r *gin.Engine, priceService service.PriceService, userService s
 		v1.DELETE("/symbols/:id", symbolHandler.DeleteSymbol)
 		v1.GET("/logs", logHandler.GetAllLogs)
 		v1.GET("/logs/user/:user_id", logHandler.GetLogsByUser)
+		v1.GET("/rules", ruleHandler.GetAllRules)
+		v1.POST("/admin/rules", ruleHandler.CreateRule)
+		v1.GET("/admin/rules/:id", ruleHandler.GetRule)
+		v1.PUT("/admin/rules/:id", ruleHandler.UpdateRule)
+		v1.DELETE("/admin/rules/:id", ruleHandler.DeleteRule)
 	}
 
 	r.GET("/ws", wsHandler.HandleConnection)
