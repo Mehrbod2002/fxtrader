@@ -19,8 +19,8 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceSe
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
-		ExposeHeaders:    []string{"Content-Length"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "User-Agent", "Referer"},
+		ExposeHeaders:    []string{"Content-Length", "User-Agent", "Referer"},
 		AllowCredentials: true,
 	}))
 
