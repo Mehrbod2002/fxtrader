@@ -4,6 +4,7 @@ import (
 	"fxtrader/internal/models"
 	"fxtrader/internal/service"
 	"net/http"
+	"regexp"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -40,6 +41,14 @@ func (h *SymbolHandler) CreateSymbol(c *gin.Context) {
 
 	if err := h.symbolService.CreateSymbol(&symbol); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create symbol"})
+		return
+	}
+
+	pattern := `^\d{2}:\d{2}$`
+	v, _ := regexp.MatchString(pattern, symbol.TradingHours.CloseTime)
+	m, _ := regexp.MatchString(pattern, symbol.TradingHours.OpenTime)
+	if !v || !m {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "symbol trading hours are not valid"})
 		return
 	}
 

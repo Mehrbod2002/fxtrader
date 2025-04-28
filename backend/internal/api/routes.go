@@ -79,12 +79,14 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceSe
 
 		admin := v1.Group("/admin").Use(middleware.AdminAuthMiddleware(cfg))
 		{
+			admin.GET("/symbols", symbolHandler.GetAllSymbols)
 			admin.POST("/symbols", symbolHandler.CreateSymbol)
 			admin.PUT("/symbols/:id", symbolHandler.UpdateSymbol)
 			admin.DELETE("/symbols/:id", symbolHandler.DeleteSymbol)
 			admin.GET("/logs", logHandler.GetAllLogs)
 			admin.GET("/logs/user/:user_id", logHandler.GetLogsByUser)
 			admin.POST("/rules", ruleHandler.CreateRule)
+			admin.GET("/rules", ruleHandler.GetAllRules)
 			admin.GET("/rules/:id", ruleHandler.GetRule)
 			admin.PUT("/rules/:id", ruleHandler.UpdateRule)
 			admin.DELETE("/rules/:id", ruleHandler.DeleteRule)

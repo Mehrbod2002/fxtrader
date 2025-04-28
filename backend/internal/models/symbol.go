@@ -24,7 +24,7 @@ type Symbol struct {
 }
 
 type TradingHours struct {
-	Unlimited bool      `json:"unlimited" bson:"unlimited"`
-	OpenTime  time.Time `json:"open_time,omitempty" bson:"open_time,omitempty"`
-	CloseTime time.Time `json:"close_time,omitempty" bson:"close_time,omitempty"`
+	Unlimited bool   `json:"unlimited" bson:"unlimited"`
+	OpenTime  string `json:"open_time,omitempty" bson:"open_time,omitempty"`
+	CloseTime string `json:"close_time,omitempty" bson:"close_time,omitempty"`
 }
