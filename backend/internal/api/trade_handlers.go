@@ -97,7 +97,6 @@ func (h *TradeHandler) GetUserTrades(c *gin.Context) {
 func (h *TradeHandler) GetTrade(c *gin.Context) {
 	tradeID := c.Param("id")
 	userID := c.GetString("user_id")
-	isAdmin := c.GetBool("is_admin")
 
 	trade, err := h.tradeService.GetTrade(tradeID)
 	if err != nil {
@@ -109,16 +108,16 @@ func (h *TradeHandler) GetTrade(c *gin.Context) {
 		return
 	}
 
-	if !isAdmin && trade.UserID.Hex() != userID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden (trade belongs to another user)"})
-		return
-	}
+	// Admin
+	// if trade.UserID.Hex() != userID {
+	// 	c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden (trade belongs to another user)"})
+	// 	return
+	// }
 
 	userObjID, _ := primitive.ObjectIDFromHex(userID)
 	metadata := map[string]interface{}{
 		"user_id":  userID,
 		"trade_id": tradeID,
-		"is_admin": isAdmin,
 	}
 	h.logService.LogAction(userObjID, "GetTrade", "Trade data retrieved", c.ClientIP(), metadata)
 

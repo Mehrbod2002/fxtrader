@@ -43,13 +43,13 @@ func main() {
 	go hub.Run()
 
 	priceRepo := repository.NewPriceRepository()
-	userRepo := repository.NewUserRepository(client, "fxtrader", "users")
-	symbolRepo := repository.NewSymbolRepository(client, "fxtrader", "symbols")
-	logRepo := repository.NewLogRepository(client, "fxtrader", "logs")
-	ruleRepo := repository.NewRuleRepository(client, "fxtrader", "rules")
-	tradeRepo := repository.NewTradeRepository(client, "fxtrader", "trades")
-	transactionRepo := repository.NewTransactionRepository(client, "fxtrader", "transactions")
-	adminRepo := repository.NewAdminRepository(client, "fxtrader", "admins")
+	userRepo := repository.NewUserRepository(client, "fxtrader", "users_fxtrader")
+	symbolRepo := repository.NewSymbolRepository(client, "fxtrader", "symbols_fxtrader")
+	logRepo := repository.NewLogRepository(client, "fxtrader", "logs_fxtrader")
+	ruleRepo := repository.NewRuleRepository(client, "fxtrader", "rules_fxtrader")
+	tradeRepo := repository.NewTradeRepository(client, "fxtrader", "trades_fxtrader")
+	transactionRepo := repository.NewTransactionRepository(client, "fxtrader", "transactions_fxtrader")
+	adminRepo := repository.NewAdminRepository(client, "fxtrader", "admins_fxtrader")
 
 	if err := config.EnsureAdminUser(adminRepo, cfg.AdminUser, cfg.AdminPass); err != nil {
 		log.Fatalf("Failed to ensure admin user: %v", err)
