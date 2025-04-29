@@ -30,11 +30,6 @@ func NewTransactionService(transactionRepo repository.TransactionRepository, log
 }
 
 func (s *transactionService) CreateTransaction(userID string, transaction *models.Transaction) error {
-	userObjID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		return errors.New("invalid user ID")
-	}
-
 	if transaction.TransactionType != models.TransactionTypeDeposit && transaction.TransactionType != models.TransactionTypeWithdrawal {
 		return errors.New("invalid transaction type")
 	}
@@ -48,10 +43,10 @@ func (s *transactionService) CreateTransaction(userID string, transaction *model
 		return errors.New("receipt image required for deposit receipt method")
 	}
 
-	transaction.UserID = userObjID
+	transaction.UserID = userID
 	transaction.Status = models.TransactionStatusPending
 
-	err = s.transactionRepo.SaveTransaction(transaction)
+	err := s.transactionRepo.SaveTransaction(transaction)
 	if err != nil {
 		return err
 	}
@@ -62,7 +57,7 @@ func (s *transactionService) CreateTransaction(userID string, transaction *model
 		"payment_method":   transaction.PaymentMethod,
 		"amount":           transaction.Amount,
 	}
-	s.logService.LogAction(userObjID, "CreateTransaction", "Transaction requested", "", metadata)
+	s.logService.LogAction(primitive.ObjectID{}, "CreateTransaction", "Transaction requested", "", metadata)
 
 	return nil
 }
