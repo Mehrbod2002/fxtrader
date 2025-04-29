@@ -161,12 +161,6 @@ func (h *TradeHandler) HandleTradeResponse(c *gin.Context) {
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /api/v1/admin/trades [get]
 func (h *TradeHandler) GetAllTrades(c *gin.Context) {
-	isAdmin := c.GetBool("is_admin")
-	if !isAdmin {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden (non-admin)"})
-		return
-	}
-
 	trades, err := h.tradeService.GetAllTrades()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve trades"})
