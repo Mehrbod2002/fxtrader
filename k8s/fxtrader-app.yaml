@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fxtrader
+  namespace: fxtrader
+  labels:
+    app: fxtrader
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fxtrader
+  template:
+    metadata:
+      labels:
+        app: fxtrader
+    spec:
+      containers:
+      - name: fxtrader
+        image: fxtrader:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 5001
+          name: udp
+          protocol: UDP
+        envFrom:
+        - configMapRef:
+            name: fxtrader-config
+        - secretRef:
+            name: fxtrader-secret
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fxtrader-service
+  namespace: fxtrader
+spec:
+  selector:
+    app: fxtrader
+  ports:
+  - name: http
+    port: 8080
+    targetPort: 8080
+  - name: udp
+    port: 5001
+    targetPort: 5001
+    protocol: UDP
