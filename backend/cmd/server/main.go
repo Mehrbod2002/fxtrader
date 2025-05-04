@@ -3,14 +3,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"fxtrader/internal/api"
-	"fxtrader/internal/config"
-	"fxtrader/internal/middleware"
-	"fxtrader/internal/repository"
-	"fxtrader/internal/service"
-	"fxtrader/internal/ws"
 	"log"
 	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/api"
+	"github.com/mehrbod2002/fxtrader/internal/config"
+	"github.com/mehrbod2002/fxtrader/internal/middleware"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+	"github.com/mehrbod2002/fxtrader/internal/service"
+	"github.com/mehrbod2002/fxtrader/internal/ws"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/mongo"

@@ -1,8 +1,8 @@
 package service
 
 import (
-	"fxtrader/internal/models"
-	"fxtrader/internal/repository"
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )

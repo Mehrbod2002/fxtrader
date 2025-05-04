@@ -2,9 +2,10 @@ package service
 
 import (
 	"errors"
-	"fxtrader/internal/models"
-	"fxtrader/internal/repository"
 	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )

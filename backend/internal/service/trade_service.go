@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"fxtrader/internal/models"
-	"fxtrader/internal/repository"
 	"log"
 	"net"
 	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )

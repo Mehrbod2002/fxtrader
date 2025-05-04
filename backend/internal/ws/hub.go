@@ -1,9 +1,10 @@
 package ws
 
 import (
-	"fxtrader/internal/models"
 	"log"
 	"sync"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"

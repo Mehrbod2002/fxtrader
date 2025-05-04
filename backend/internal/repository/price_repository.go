@@ -1,8 +1,9 @@
 package repository
 
 import (
-	"fxtrader/internal/models"
 	"sync"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
 )
 
 type PriceRepository interface {

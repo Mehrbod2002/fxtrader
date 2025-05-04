@@ -1,9 +1,10 @@
 package middleware
 
 import (
-	"fxtrader/internal/config"
 	"net/http"
 	"strings"
+
+	"github.com/mehrbod2002/fxtrader/internal/config"
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"

@@ -1,10 +1,11 @@
 package service
 
 import (
-	"fxtrader/internal/models"
-	"fxtrader/internal/repository"
-	"fxtrader/internal/ws"
 	"log"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+	"github.com/mehrbod2002/fxtrader/internal/ws"
 )
 
 type PriceService interface {

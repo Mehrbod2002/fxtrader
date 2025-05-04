@@ -2,8 +2,9 @@ package repository
 
 import (
 	"context"
-	"fxtrader/internal/models"
 	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"

@@ -1,8 +1,9 @@
 package api
 
 import (
-	"fxtrader/internal/service"
 	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/service"
 
 	"github.com/gin-gonic/gin"
 )

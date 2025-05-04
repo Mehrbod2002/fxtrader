@@ -1,11 +1,12 @@
 package api
 
 import (
-	"fxtrader/internal/config"
-	"fxtrader/internal/models"
-	"fxtrader/internal/service"
 	"net/http"
 	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/config"
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"

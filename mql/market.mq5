@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //| Expert Advisor to send last Buy (Ask) and Sell (Bid) as JSON      |
 //+------------------------------------------------------------------+
-#property copyright "Your Name"
+#property copyright "Amirhossein Akhlaghpour"
 #property link      "https://www.yourwebsite.com"
 #property version   "1.00"
 

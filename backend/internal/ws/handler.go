@@ -2,10 +2,11 @@ package ws
 
 import (
 	"encoding/json"
-	"fxtrader/internal/models"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"

@@ -1,13 +1,16 @@
 package api
 
 import (
-	"fxtrader/internal/config"
-	"fxtrader/internal/middleware"
-	"fxtrader/internal/repository"
-	"fxtrader/internal/service"
-	"fxtrader/internal/ws"
 	"os"
 	"path/filepath"
+
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/mehrbod2002/fxtrader/internal/middleware"
+
+	"github.com/mehrbod2002/fxtrader/internal/config"
+	"github.com/mehrbod2002/fxtrader/internal/ws"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"

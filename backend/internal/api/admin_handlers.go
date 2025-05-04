@@ -1,10 +1,12 @@
 package api
 
 import (
-	"fxtrader/internal/config"
-	"fxtrader/internal/middleware"
-	"fxtrader/internal/repository"
 	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/middleware"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"github.com/mehrbod2002/fxtrader/internal/config"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"

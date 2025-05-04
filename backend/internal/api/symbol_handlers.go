@@ -1,10 +1,12 @@
 package api
 
 import (
-	"fxtrader/internal/models"
-	"fxtrader/internal/service"
 	"net/http"
 	"regexp"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"github.com/mehrbod2002/fxtrader/internal/service"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -19,7 +21,6 @@ func NewSymbolHandler(symbolService service.SymbolService, logService service.Lo
 	return &SymbolHandler{symbolService: symbolService, logService: logService}
 }
 
-// CreateSymbol creates a new symbol
 // @Summary Create a new symbol
 // @Description Adds a new trading symbol to the system (admin only)
 // @Tags Symbols
