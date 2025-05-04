@@ -1,8 +1,6 @@
 package service
 
 import (
-	"log"
-
 	"github.com/mehrbod2002/fxtrader/internal/models"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
 	"github.com/mehrbod2002/fxtrader/internal/ws"
@@ -30,7 +28,6 @@ func (s *priceService) ProcessPrice(data *models.PriceData) error {
 	}
 
 	s.hub.BroadcastPrice(data)
-	log.Printf("Price broadcast: %s Ask: %.5f Bid: %.5f", data.Symbol, data.Ask, data.Bid)
 
 	return nil
 }

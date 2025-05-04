@@ -77,13 +77,11 @@ func (s *tradeService) StartUDPListener() error {
 		for {
 			n, _, err := conn.ReadFromUDP(buf)
 			if err != nil {
-				log.Printf("UDP read error: %v", err)
 				continue
 			}
 
 			var msg map[string]interface{}
 			if err := json.Unmarshal(buf[:n], &msg); err != nil {
-				log.Printf("Failed to parse UDP message: %v", err)
 				continue
 			}
 
@@ -91,14 +89,12 @@ func (s *tradeService) StartUDPListener() error {
 				if msgType == "trade_response" {
 					var response TradeResponse
 					if err := json.Unmarshal(buf[:n], &response); err != nil {
-						log.Printf("Failed to parse trade response: %v", err)
 						continue
 					}
 					s.responseChan <- response
 				} else if msgType == "balance_response" {
 					var response BalanceResponse
 					if err := json.Unmarshal(buf[:n], &response); err != nil {
-						log.Printf("Failed to parse balance response: %v", err)
 						continue
 					}
 					s.balanceChan <- response
