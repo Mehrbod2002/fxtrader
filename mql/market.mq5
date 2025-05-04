@@ -8,7 +8,6 @@ int OnInit()
 {
    if(!TerminalInfoInteger(TERMINAL_DLLS_ALLOWED))
    {
-      Print("DLLs are not allowed. Please enable DLLs in MT5 settings.");
       return(INIT_FAILED);
    }
    return(INIT_SUCCEEDED);
@@ -29,11 +28,7 @@ void OnTick()
    string result_headers;
    StringToCharArray(json, post);
    
-   int res = WebRequest("POST", BackendURL, headers, 10000, post, result, result_headers);
-   if(res == 200)
-      Print("Prices sent successfully: ", json);
-   else
-      Print("Failed to send prices. Error code: ", res, ", JSON: ", json);
+   WebRequest("POST", BackendURL, headers, 10000, post, result, result_headers);
 }
 
 void OnDeinit(const int reason)
