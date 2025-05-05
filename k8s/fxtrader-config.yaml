@@ -7,7 +7,7 @@ data:
   ADDRESS: "0.0.0.0"
   PORT: "8080"
   BASE_URL: "http://fxtrader-service.fxtrader.svc.cluster.local:8080"
-  MT5_HOST: "<your-mt5-host>" 
+  MT5_HOST: "mt5-mock.fxtrader.svc.cluster.local"
   MT5_PORT: "5000"
   LISTEN_PORT: "5001"
 ---
@@ -18,7 +18,7 @@ metadata:
   namespace: fxtrader
 type: Opaque
 data:
-  MONGO_URI: bW9uZ29kYjovL2FkbWluOnBhc3N3b3JkQG1vbmdvZGIuZnh0cmFkZXIuc3ZjLmNsdXN0ZXIubG9jYWw6MjcwMTcvZnh0cmFkZXI=
+  MONGO_URI: bW9uZ29kYjovL2FkbWluOnN0cm9uZ19wYXNzd29yZEBtb25nb2RiLmZ4dHJhZGVyLnN2Yy5jbHVzdGVyLmxvY2FsOjI3MDE3L2Z4dHJhZGVy
   ADMIN_USER: YWRtaW4=
   ADMIN_PASS: YWRtaW4=
   JWT_SECRET: ZGVmYXVsdF9qd3Rfc2VjcmV0
