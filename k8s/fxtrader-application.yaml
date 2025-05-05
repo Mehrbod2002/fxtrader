@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/yourusername/fxtrader-k8s.git
+    repoURL: https://github.com/mehrbod2002/fxtrader.git
     targetRevision: main
     path: k8s
   destination:

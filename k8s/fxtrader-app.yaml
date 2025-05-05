@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: fxtrader
-        image: fxtrader:1.0.0
+        image: fxtrader:latest
         ports:
         - containerPort: 8080
           name: http
