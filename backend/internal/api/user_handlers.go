@@ -138,7 +138,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 // @Failure 404 {object} map[string]string "User not found"
 // @Router /users/{id} [get]
 func (h *UserHandler) GetUser(c *gin.Context) {
-	id := c.Param("id")
+	id := c.Param("telegram_id")
 	user, err := h.userService.GetUser(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
