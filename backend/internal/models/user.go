@@ -14,6 +14,7 @@ type UserAccount struct {
 	Citizenship      string             `json:"citizenship" bson:"citizenship"`
 	AccountType      string             `json:"account_type" bson:"account_type"`
 	AccountName      string             `json:"account_name" bson:"account_name"`
+	Residence        string             `json:"residence" bson:"residence"`
 	Balance          float64            `json:"balance" bson:"balance"`
 	Bonus            float64            `json:"bonus" bson:"bonus"`
 	Leverage         int                `json:"leverage" bson:"leverage"`

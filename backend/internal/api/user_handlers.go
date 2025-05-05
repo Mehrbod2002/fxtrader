@@ -12,11 +12,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type SignupRequest struct {
-	TelegramID string `json:"telegram_id" binding:"required"`
-	Username   string `json:"username"`
-}
-
 type LoginRequest struct {
 	TelegramID string `json:"telegram_id" binding:"required"`
 }
@@ -43,7 +38,7 @@ func NewUserHandler(userService service.UserService, logService service.LogServi
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /users/signup [post]
 func (h *UserHandler) SignupUser(c *gin.Context) {
-	var req SignupRequest
+	var req models.UserAccount
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
@@ -61,8 +56,13 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 
 	user := &models.UserAccount{
 		ID:               primitive.NewObjectID(),
+		FullName:         req.FullName,
+		PhoneNumber:      req.PhoneNumber,
 		TelegramID:       req.TelegramID,
 		Username:         req.Username,
+		CardNumber:       req.CardNumber,
+		Citizenship:      req.Citizenship,
+		NationalID:       req.NationalID,
 		AccountType:      "user",
 		RegistrationDate: time.Now().Format(time.RFC3339),
 	}
