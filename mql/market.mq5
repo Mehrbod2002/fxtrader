@@ -2,7 +2,7 @@
 #property link      "https://www.yourwebsite.com"
 #property version   "1.00"
 
-input string BackendURL = "http://172.30.35.174:8080/api/prices";
+input string BackendURL = "http://144.76.169.71:7000/api/v1/prices";
 
 int OnInit()
 {

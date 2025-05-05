@@ -19,6 +19,8 @@ import (
 )
 
 func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceService, adminRepo repository.AdminRepository, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, tradeService service.TradeService, transactionService service.TransactionService, wsHandler *ws.WebSocketHandler, baseURL string) {
+	// r.SetTrustedProxies([]string{})
+
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},

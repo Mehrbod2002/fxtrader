@@ -1,2 +1,2 @@
 go.sum
-backend/cmd/server/server
+backend/cmd/server/server*
