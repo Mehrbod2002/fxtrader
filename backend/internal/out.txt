@@ -1,0 +1,4399 @@
+-e 
+=== ./middleware/logger.go ===
+
+package middleware
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
+
+func LoggerMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		method := c.Request.Method
+
+		c.Next()
+
+		latency := time.Since(start)
+		status := c.Writer.Status()
+		fmt.Printf("[%s] %s %s %d %v\n", time.Now().Format(time.RFC3339), method, path, status, latency)
+	}
+}
+-e 
+=== ./middleware/autrh.go ===
+
+package middleware
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/mehrbod2002/fxtrader/internal/config"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gin-gonic/gin"
+)
+
+func AdminAuthMiddleware(cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
+			c.Abort()
+			return
+		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid authorization header; expected Bearer token"})
+			c.Abort()
+			return
+		}
+
+		tokenStr := parts[1]
+		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, jwt.ErrSignatureInvalid
+			}
+			return []byte(cfg.JWTSecret), nil
+		})
+		if err != nil || !token.Valid {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
+			return
+		}
+
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+			c.Abort()
+			return
+		}
+
+		isAdmin, ok := claims["is_admin"].(bool)
+		if !ok || !isAdmin {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Admin access required"})
+			c.Abort()
+			return
+		}
+
+		userID, ok := claims["user_id"].(string)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user ID in token"})
+			c.Abort()
+			return
+		}
+
+		c.Set("user_id", userID)
+		c.Set("is_admin", isAdmin)
+		c.Next()
+	}
+}
+-e 
+=== ./middleware/user_auth.go ===
+
+package middleware
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/config"
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gin-gonic/gin"
+)
+
+func UserAuthMiddleware(userService service.UserService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Next()
+		return
+		telegramID := c.GetHeader("X-Telegram-ID")
+		if telegramID == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "X-Telegram-ID header required"})
+			c.Abort()
+			return
+		}
+
+		user, err := userService.GetUserByTelegramID(telegramID)
+		if err != nil || user == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid Telegram ID"})
+			c.Abort()
+			return
+		}
+
+		if user.AccountType == "admin" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Admin accounts cannot use user routes"})
+			c.Abort()
+			return
+		}
+
+		c.Set("user_id", user.ID.Hex())
+		c.Next()
+	}
+}
+
+func GenerateAdminJWT(userID string, cfg *config.Config) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id":  userID,
+		"is_admin": true,
+		"exp":      time.Now().Add(24 * time.Hour).Unix(),
+		"iat":      time.Now().Unix(),
+	})
+
+	return token.SignedString([]byte(cfg.JWTSecret))
+}
+-e 
+=== ./repository/copy_trade_repository.go ===
+
+package repository
+
+import (
+	"context"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+)
+
+type CopyTradeRepository interface {
+	SaveSubscription(subscription *models.CopyTradeSubscription) error
+	GetSubscriptionByID(id primitive.ObjectID) (*models.CopyTradeSubscription, error)
+	GetSubscriptionsByFollowerID(followerID string) ([]*models.CopyTradeSubscription, error)
+	GetActiveSubscriptionsByLeaderID(leaderID string) ([]*models.CopyTradeSubscription, error)
+	SaveCopyTrade(copyTrade *models.CopyTrade) error
+}
+
+type MongoCopyTradeRepository struct {
+	collection *mongo.Collection
+}
+
+func NewCopyTradeRepository(client *mongo.Client, dbName, collectionName string) CopyTradeRepository {
+	collection := client.Database(dbName).Collection(collectionName)
+	return &MongoCopyTradeRepository{collection: collection}
+}
+
+func (r *MongoCopyTradeRepository) SaveSubscription(subscription *models.CopyTradeSubscription) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	subscription.ID = primitive.NewObjectID()
+	subscription.CreatedAt = time.Now()
+	_, err := r.collection.InsertOne(ctx, subscription)
+	return err
+}
+
+func (r *MongoCopyTradeRepository) GetSubscriptionByID(id primitive.ObjectID) (*models.CopyTradeSubscription, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var subscription models.CopyTradeSubscription
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&subscription)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	return &subscription, err
+}
+
+func (r *MongoCopyTradeRepository) GetSubscriptionsByFollowerID(followerID string) ([]*models.CopyTradeSubscription, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var subscriptions []*models.CopyTradeSubscription
+	cursor, err := r.collection.Find(ctx, bson.M{"follower_id": followerID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &subscriptions); err != nil {
+		return nil, err
+	}
+	return subscriptions, nil
+}
+
+func (r *MongoCopyTradeRepository) GetActiveSubscriptionsByLeaderID(leaderID string) ([]*models.CopyTradeSubscription, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var subscriptions []*models.CopyTradeSubscription
+	cursor, err := r.collection.Find(ctx, bson.M{"leader_id": leaderID, "status": "ACTIVE"})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &subscriptions); err != nil {
+		return nil, err
+	}
+	return subscriptions, nil
+}
+
+func (r *MongoCopyTradeRepository) SaveCopyTrade(copyTrade *models.CopyTrade) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	copyTrade.ID = primitive.NewObjectID()
+	copyTrade.CreatedAt = time.Now()
+	_, err := r.collection.InsertOne(ctx, copyTrade)
+	return err
+}
+-e 
+=== ./repository/alert_repository.go ===
+
+package repository
+
+import (
+	"context"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+type AlertRepository interface {
+	SaveAlert(alert *models.Alert) error
+	GetAlertByID(id primitive.ObjectID) (*models.Alert, error)
+	GetAlertsByUserID(userID string) ([]*models.Alert, error)
+	GetPendingAlerts() ([]*models.Alert, error)
+	UpdateAlert(id primitive.ObjectID, alert *models.Alert) error
+}
+
+type MongoAlertRepository struct {
+	collection *mongo.Collection
+}
+
+func NewAlertRepository(client *mongo.Client, dbName, collectionName string) AlertRepository {
+	collection := client.Database(dbName).Collection(collectionName)
+	return &MongoAlertRepository{collection: collection}
+}
+
+func (r *MongoAlertRepository) SaveAlert(alert *models.Alert) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	alert.ID = primitive.NewObjectID()
+	alert.CreatedAt = time.Now()
+	_, err := r.collection.InsertOne(ctx, alert)
+	return err
+}
+
+func (r *MongoAlertRepository) GetAlertByID(id primitive.ObjectID) (*models.Alert, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var alert models.Alert
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&alert)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	return &alert, err
+}
+
+func (r *MongoAlertRepository) GetAlertsByUserID(userID string) ([]*models.Alert, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var alerts []*models.Alert
+	cursor, err := r.collection.Find(ctx, bson.M{"user_id": userID}, options.Find().SetSort(bson.M{"created_at": -1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &alerts); err != nil {
+		return nil, err
+	}
+	return alerts, nil
+}
+
+func (r *MongoAlertRepository) GetPendingAlerts() ([]*models.Alert, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var alerts []*models.Alert
+	cursor, err := r.collection.Find(ctx, bson.M{"status": models.AlertStatusPending}, options.Find())
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &alerts); err != nil {
+		return nil, err
+	}
+	return alerts, nil
+}
+
+func (r *MongoAlertRepository) UpdateAlert(id primitive.ObjectID, alert *models.Alert) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	update := bson.M{
+		"$set": bson.M{
+			"status":       alert.Status,
+			"triggered_at": alert.TriggeredAt,
+		},
+	}
+	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": id}, update)
+	return err
+}
+-e 
+=== ./repository/transaction_repository.go ===
+
+package repository
+
+import (
+	"context"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+type TransactionRepository interface {
+	SaveTransaction(transaction *models.Transaction) error
+	GetTransactionByID(id primitive.ObjectID) (*models.Transaction, error)
+	GetTransactionsByUserID(userID primitive.ObjectID) ([]*models.Transaction, error)
+	GetAllTransactions() ([]*models.Transaction, error)
+	UpdateTransaction(id primitive.ObjectID, transaction *models.Transaction) error
+}
+
+type MongoTransactionRepository struct {
+	collection *mongo.Collection
+}
+
+func NewTransactionRepository(client *mongo.Client, dbName, collectionName string) TransactionRepository {
+	collection := client.Database(dbName).Collection(collectionName)
+	return &MongoTransactionRepository{collection: collection}
+}
+
+func (r *MongoTransactionRepository) SaveTransaction(transaction *models.Transaction) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	transaction.ID = primitive.NewObjectID()
+	transaction.RequestTime = time.Now()
+	_, err := r.collection.InsertOne(ctx, transaction)
+	return err
+}
+
+func (r *MongoTransactionRepository) GetTransactionByID(id primitive.ObjectID) (*models.Transaction, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var transaction models.Transaction
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&transaction)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	return &transaction, err
+}
+
+func (r *MongoTransactionRepository) GetTransactionsByUserID(userID primitive.ObjectID) ([]*models.Transaction, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var transactions []*models.Transaction
+	cursor, err := r.collection.Find(ctx, bson.M{"user_id": userID}, options.Find().SetSort(bson.M{"request_time": -1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &transactions); err != nil {
+		return nil, err
+	}
+	return transactions, nil
+}
+
+func (r *MongoTransactionRepository) GetAllTransactions() ([]*models.Transaction, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var transactions []*models.Transaction
+	cursor, err := r.collection.Find(ctx, bson.M{}, options.Find().SetSort(bson.M{"request_time": -1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &transactions); err != nil {
+		return nil, err
+	}
+	return transactions, nil
+}
+
+func (r *MongoTransactionRepository) UpdateTransaction(id primitive.ObjectID, transaction *models.Transaction) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	update := bson.M{
+		"$set": bson.M{
+			"status":        transaction.Status,
+			"response_time": transaction.ResponseTime,
+			"admin_note":    transaction.AdminNote,
+		},
+	}
+	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": id}, update)
+	return err
+}
+-e 
+=== ./repository/user_repository.go ===
+
+package repository
+
+// package repository
+// (No changes needed; provided for reference)
+import (
+	"context"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+)
+
+type UserRepository interface {
+	SaveUser(user *models.UserAccount) error
+	GetUserByID(id primitive.ObjectID) (*models.UserAccount, error)
+	GetUserByTelegramID(telegramID string) (*models.UserAccount, error)
+	GetAllUsers() ([]*models.UserAccount, error)
+}
+
+type MongoUserRepository struct {
+	collection *mongo.Collection
+}
+
+func NewUserRepository(client *mongo.Client, dbName, collectionName string) UserRepository {
+	collection := client.Database(dbName).Collection(collectionName)
+	return &MongoUserRepository{collection: collection}
+}
+
+func (r *MongoUserRepository) SaveUser(user *models.UserAccount) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.collection.InsertOne(ctx, user)
+	return err
+}
+
+func (r *MongoUserRepository) GetUserByID(id primitive.ObjectID) (*models.UserAccount, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var user models.UserAccount
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&user)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *MongoUserRepository) GetUserByTelegramID(telegramID string) (*models.UserAccount, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var user models.UserAccount
+	err := r.collection.FindOne(ctx, bson.M{"telegram_id": telegramID}).Decode(&user)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *MongoUserRepository) GetAllUsers() ([]*models.UserAccount, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cursor, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var users []*models.UserAccount
+	if err := cursor.All(ctx, &users); err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+-e 
+=== ./repository/admin_repository.go ===
+
+package repository
+
+import (
+	"context"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+)
+
+type AdminRepository interface {
+	SaveAdmin(admin *models.AdminAccount) error
+	GetAdminByID(id primitive.ObjectID) (*models.AdminAccount, error)
+	GetAdminByUsername(username string) (*models.AdminAccount, error)
+}
+
+type MongoAdminRepository struct {
+	collection *mongo.Collection
+}
+
+func NewAdminRepository(client *mongo.Client, dbName, collectionName string) AdminRepository {
+	collection := client.Database(dbName).Collection(collectionName)
+	return &MongoAdminRepository{collection: collection}
+}
+
+func (r *MongoAdminRepository) SaveAdmin(admin *models.AdminAccount) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.collection.InsertOne(ctx, admin)
+	return err
+}
+
+func (r *MongoAdminRepository) GetAdminByID(id primitive.ObjectID) (*models.AdminAccount, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var admin models.AdminAccount
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&admin)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &admin, nil
+}
+
+func (r *MongoAdminRepository) GetAdminByUsername(username string) (*models.AdminAccount, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var admin models.AdminAccount
+	err := r.collection.FindOne(ctx, bson.M{"username": username}).Decode(&admin)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &admin, nil
+}
+-e 
+=== ./repository/log_repository.go ===
+
+package repository
+
+import (
+	"context"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+)
+
+type LogRepository interface {
+	SaveLog(log *models.LogEntry) error
+	GetAllLogs() ([]*models.LogEntry, error)
+	GetLogsByUserID(userID primitive.ObjectID) ([]*models.LogEntry, error)
+}
+
+type MongoLogRepository struct {
+	collection *mongo.Collection
+}
+
+func NewLogRepository(client *mongo.Client, dbName, collectionName string) LogRepository {
+	collection := client.Database(dbName).Collection(collectionName)
+	return &MongoLogRepository{collection: collection}
+}
+
+func (r *MongoLogRepository) SaveLog(log *models.LogEntry) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	log.ID = primitive.NewObjectID()
+	log.Timestamp = time.Now()
+	_, err := r.collection.InsertOne(ctx, log)
+	return err
+}
+
+func (r *MongoLogRepository) GetAllLogs() ([]*models.LogEntry, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var logs []*models.LogEntry
+	cursor, err := r.collection.Find(ctx, bson.M{}, options.Find().SetSort(bson.M{"timestamp": -1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &logs); err != nil {
+		return nil, err
+	}
+	return logs, nil
+}
+
+func (r *MongoLogRepository) GetLogsByUserID(userID primitive.ObjectID) ([]*models.LogEntry, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var logs []*models.LogEntry
+	cursor, err := r.collection.Find(ctx, bson.M{"user_id": userID}, options.Find().SetSort(bson.M{"timestamp": -1}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &logs); err != nil {
+		return nil, err
+	}
+	return logs, nil
+}
+-e 
+=== ./repository/symbol_repository.go ===
+
+package repository
+
+import (
+	"context"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+)
+
+type SymbolRepository interface {
+	SaveSymbol(symbol *models.Symbol) error
+	GetSymbolByID(id primitive.ObjectID) (*models.Symbol, error)
+	GetAllSymbols() ([]*models.Symbol, error)
+	UpdateSymbol(id primitive.ObjectID, symbol *models.Symbol) error
+	DeleteSymbol(id primitive.ObjectID) error
+}
+
+type MongoSymbolRepository struct {
+	collection *mongo.Collection
+}
+
+func NewSymbolRepository(client *mongo.Client, dbName, collectionName string) SymbolRepository {
+	collection := client.Database(dbName).Collection(collectionName)
+	return &MongoSymbolRepository{collection: collection}
+}
+
+func (r *MongoSymbolRepository) SaveSymbol(symbol *models.Symbol) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	symbol.ID = primitive.NewObjectID()
+	symbol.CreatedAt = time.Now()
+	symbol.UpdatedAt = time.Now()
+	_, err := r.collection.InsertOne(ctx, symbol)
+	return err
+}
+
+func (r *MongoSymbolRepository) GetSymbolByID(id primitive.ObjectID) (*models.Symbol, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var symbol models.Symbol
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&symbol)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	return &symbol, err
+}
+
+func (r *MongoSymbolRepository) GetAllSymbols() ([]*models.Symbol, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var symbols []*models.Symbol
+	cursor, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &symbols); err != nil {
+		return nil, err
+	}
+	return symbols, nil
+}
+
+func (r *MongoSymbolRepository) UpdateSymbol(id primitive.ObjectID, symbol *models.Symbol) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	symbol.UpdatedAt = time.Now()
+	update := bson.M{"$set": symbol}
+	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": id}, update)
+	return err
+}
+
+func (r *MongoSymbolRepository) DeleteSymbol(id primitive.ObjectID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
+	return err
+}
+-e 
+=== ./repository/rule_repository.go ===
+
+package repository
+
+import (
+	"context"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+)
+
+type RuleRepository interface {
+	SaveRule(rule *models.Rule) error
+	GetRuleByID(id primitive.ObjectID) (*models.Rule, error)
+	GetAllRules() ([]*models.Rule, error)
+	UpdateRule(id primitive.ObjectID, rule *models.Rule) error
+	DeleteRule(id primitive.ObjectID) error
+}
+
+type MongoRuleRepository struct {
+	collection *mongo.Collection
+}
+
+func NewRuleRepository(client *mongo.Client, dbName, collectionName string) RuleRepository {
+	collection := client.Database(dbName).Collection(collectionName)
+	return &MongoRuleRepository{collection: collection}
+}
+
+func (r *MongoRuleRepository) SaveRule(rule *models.Rule) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	rule.ID = primitive.NewObjectID()
+	rule.CreatedAt = time.Now()
+	_, err := r.collection.InsertOne(ctx, rule)
+	return err
+}
+
+func (r *MongoRuleRepository) GetRuleByID(id primitive.ObjectID) (*models.Rule, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var rule models.Rule
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&rule)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	return &rule, err
+}
+
+func (r *MongoRuleRepository) GetAllRules() ([]*models.Rule, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var rules []*models.Rule
+	cursor, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &rules); err != nil {
+		return nil, err
+	}
+	return rules, nil
+}
+
+func (r *MongoRuleRepository) UpdateRule(id primitive.ObjectID, rule *models.Rule) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	update := bson.M{"$set": bson.M{"content": rule.Content}}
+	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": id}, update)
+	return err
+}
+
+func (r *MongoRuleRepository) DeleteRule(id primitive.ObjectID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.collection.DeleteOne(ctx, bson.M{"_id": id})
+	return err
+}
+-e 
+=== ./repository/trade_repository.go ===
+
+package repository
+
+import (
+	"context"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+)
+
+type TradeRepository interface {
+	SaveTrade(trade *models.TradeHistory) error
+	GetTradeByID(id primitive.ObjectID) (*models.TradeHistory, error)
+	GetTradesByUserID(userID primitive.ObjectID) ([]*models.TradeHistory, error)
+	GetAllTrades() ([]*models.TradeHistory, error)
+}
+
+type MongoTradeRepository struct {
+	collection *mongo.Collection
+}
+
+func NewTradeRepository(client *mongo.Client, dbName, collectionName string) TradeRepository {
+	collection := client.Database(dbName).Collection(collectionName)
+	return &MongoTradeRepository{collection: collection}
+}
+
+func (r *MongoTradeRepository) SaveTrade(trade *models.TradeHistory) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	trade.ID = primitive.NewObjectID()
+	trade.OpenTime = time.Now()
+	_, err := r.collection.InsertOne(ctx, trade)
+	return err
+}
+
+func (r *MongoTradeRepository) GetTradeByID(id primitive.ObjectID) (*models.TradeHistory, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var trade models.TradeHistory
+	err := r.collection.FindOne(ctx, bson.M{"_id": id}).Decode(&trade)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	return &trade, err
+}
+
+func (r *MongoTradeRepository) GetTradesByUserID(userID primitive.ObjectID) ([]*models.TradeHistory, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var trades []*models.TradeHistory
+	cursor, err := r.collection.Find(ctx, bson.M{"user_id": userID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &trades); err != nil {
+		return nil, err
+	}
+	return trades, nil
+}
+
+func (r *MongoTradeRepository) GetAllTrades() ([]*models.TradeHistory, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cursor, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var trades []*models.TradeHistory
+	if err := cursor.All(ctx, &trades); err != nil {
+		return nil, err
+	}
+	return trades, nil
+}
+-e 
+=== ./repository/price_repository.go ===
+
+package repository
+
+import (
+	"sync"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+)
+
+type PriceRepository interface {
+	SavePrice(data *models.PriceData) error
+}
+
+type InMemoryPriceRepository struct {
+	prices []*models.PriceData
+	mu     sync.Mutex
+}
+
+func NewPriceRepository() PriceRepository {
+	return &InMemoryPriceRepository{
+		prices: make([]*models.PriceData, 0),
+	}
+}
+
+func (r *InMemoryPriceRepository) SavePrice(data *models.PriceData) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.prices = append(r.prices, data)
+	return nil
+}
+-e 
+=== ./config/config.go ===
+
+package config
+
+import (
+	"errors"
+	"os"
+	"strconv"
+
+	"github.com/joho/godotenv"
+)
+
+type Config struct {
+	Address    string
+	Port       int
+	BaseURL    string
+	MongoURI   string
+	AdminUser  string
+	AdminPass  string
+	JWTSecret  string
+	MT5Host    string
+	MT5Port    int
+	ListenPort int
+}
+
+func Load() (*Config, error) {
+	_ = godotenv.Load("../../.env")
+
+	portStr := os.Getenv("PORT")
+	if portStr == "" {
+		portStr = "8080"
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return nil, errors.New("invalid PORT value")
+	}
+
+	address := os.Getenv("ADDRESS")
+	if address == "" {
+		address = "0.0.0.0"
+	}
+
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:" + portStr
+	}
+
+	mongoURI := os.Getenv("MONGO_URI")
+	if mongoURI == "" {
+		mongoURI = "mongodb://127.0.0.1:27017"
+	}
+
+	adminUser := os.Getenv("ADMIN_USER")
+	if adminUser == "" {
+		adminUser = "admin"
+	}
+
+	adminPass := os.Getenv("ADMIN_PASS")
+	if adminPass == "" {
+		adminPass = "admin"
+	}
+
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "default_jwt_secret"
+	}
+
+	mt5Host := os.Getenv("MT5_HOST")
+	if mt5Host == "" {
+		mt5Host = "127.0.0.1"
+	}
+
+	mt5PortStr := os.Getenv("MT5_PORT")
+	if mt5PortStr == "" {
+		mt5PortStr = "5000"
+	}
+	mt5Port, err := strconv.Atoi(mt5PortStr)
+	if err != nil {
+		return nil, errors.New("invalid MT5_PORT value")
+	}
+
+	listenPortStr := os.Getenv("LISTEN_PORT")
+	if listenPortStr == "" {
+		listenPortStr = "5001"
+	}
+	listenPort, err := strconv.Atoi(listenPortStr)
+	if err != nil {
+		return nil, errors.New("invalid LISTEN_PORT value")
+	}
+
+	return &Config{
+		Address:    address,
+		Port:       port,
+		BaseURL:    baseURL,
+		MongoURI:   mongoURI,
+		AdminUser:  adminUser,
+		AdminPass:  adminPass,
+		JWTSecret:  jwtSecret,
+		MT5Host:    mt5Host,
+		MT5Port:    mt5Port,
+		ListenPort: listenPort,
+	}, nil
+}
+-e 
+=== ./config/admin.go ===
+
+package config
+
+import (
+	"context"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"golang.org/x/crypto/bcrypt"
+)
+
+func EnsureAdminUser(adminRepo repository.AdminRepository, adminUser, adminPass string) error {
+	_, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	user, err := adminRepo.GetAdminByUsername(adminUser)
+	if err == nil && user != nil {
+		return nil
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPass), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	admin := &models.AdminAccount{
+		ID:               primitive.NewObjectID(),
+		Username:         adminUser,
+		Password:         string(hashedPassword),
+		AccountType:      "admin",
+		RegistrationDate: time.Now().Format(time.RFC3339),
+	}
+
+	err = adminRepo.SaveAdmin(admin)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+-e 
+=== ./models/trade.go ===
+
+package models
+
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type TradeType string
+
+const (
+	TradeTypeBuy  TradeType = "BUY"
+	TradeTypeSell TradeType = "SELL"
+)
+
+type TradeStatus string
+
+const (
+	TradeStatusOpen    TradeStatus = "OPEN"
+	TradeStatusClosed  TradeStatus = "CLOSED"
+	TradeStatusPending TradeStatus = "PENDING"
+)
+
+type TradeHistory struct {
+	ID         primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	UserID     primitive.ObjectID `json:"user_id" bson:"user_id"`
+	SymbolName string             `json:"symbol_name" bson:"symbol_name"`
+	TradeType  TradeType          `json:"trade_type" bson:"trade_type"`
+	Leverage   int                `json:"leverage" bson:"leverage"`
+	Volume     float64            `json:"volume" bson:"volume"`
+	EntryPrice float64            `json:"entry_price" bson:"entry_price"`
+	ClosePrice float64            `json:"close_price,omitempty" bson:"close_price,omitempty"`
+	Status     TradeStatus        `json:"status" bson:"status"`
+	ProfitLoss float64            `json:"profit_loss,omitempty" bson:"profit_loss,omitempty"`
+	OpenTime   time.Time          `json:"open_time" bson:"open_time"`
+	CloseTime  *time.Time         `json:"close_time,omitempty" bson:"close_time,omitempty"`
+}
+-e 
+=== ./models/log.go ===
+
+package models
+
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type LogEntry struct {
+	ID          primitive.ObjectID     `json:"_id,omitempty" bson:"_id,omitempty"`
+	UserID      primitive.ObjectID     `json:"user_id,omitempty" bson:"user_id,omitempty"`
+	Action      string                 `json:"action" bson:"action"`
+	Description string                 `json:"description" bson:"description"`
+	IPAddress   string                 `json:"ip_address,omitempty" bson:"ip_address,omitempty"`
+	Timestamp   time.Time              `json:"timestamp" bson:"timestamp"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty" bson:"metadata,omitempty"`
+}
+-e 
+=== ./models/user.go ===
+
+package models
+
+import (
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type UserAccount struct {
+	ID               primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	Username         string             `json:"username" bson:"username"`
+	FullName         string             `json:"full_name" bson:"full_name"`
+	PhoneNumber      string             `json:"phone_number" bson:"phone_number"`
+	CardNumber       string             `json:"card_number" bson:"card_number"`
+	NationalID       string             `json:"national_id" bson:"national_id"`
+	Citizenship      string             `json:"citizenship" bson:"citizenship"`
+	AccountType      string             `json:"account_type" bson:"account_type"`
+	AccountName      string             `json:"account_name" bson:"account_name"`
+	Residence        string             `json:"residence" bson:"residence"`
+	Balance          float64            `json:"balance" bson:"balance"`
+	Bonus            float64            `json:"bonus" bson:"bonus"`
+	Leverage         int                `json:"leverage" bson:"leverage"`
+	TradeType        string             `json:"trade_type" bson:"trade_type"`
+	RegistrationDate string             `json:"registration_date" bson:"registration_date"`
+	WalletAddress    string             `json:"wallet_address" bson:"wallet_address"`
+	TelegramID       string             `json:"telegram_id" bson:"telegram_id"`
+}
+-e 
+=== ./models/rules.go ===
+
+package models
+
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type Rule struct {
+	ID        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	Content   string             `json:"content" bson:"content"`
+	CreatedAt time.Time          `json:"created_at" bson:"created_at"`
+}
+-e 
+=== ./models/symbol.go ===
+
+package models
+
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type Symbol struct {
+	ID             primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	SymbolName     string             `json:"symbol_name" bson:"symbol_name"`
+	DisplayName    string             `json:"display_name" bson:"display_name"`
+	Category       string             `json:"category" bson:"category"`
+	DeniedAccounts []string           `json:"denied_accounts" bson:"denied_accounts"`
+	Leverage       int                `json:"leverage" bson:"leverage"`
+	MinLot         float64            `json:"min_lot" bson:"min_lot"`
+	MaxLot         float64            `json:"max_lot" bson:"max_lot"`
+	Spread         float64            `json:"spread" bson:"spread"`
+	Commission     float64            `json:"commission" bson:"commission"`
+	TradingHours   TradingHours       `json:"trading_hours" bson:"trading_hours"`
+	IsTradingOpen  bool               `json:"is_trading_open" bson:"is_trading_open"`
+	CreatedAt      time.Time          `json:"created_at" bson:"created_at"`
+	UpdatedAt      time.Time          `json:"updated_at" bson:"updated_at"`
+}
+
+type TradingHours struct {
+	Unlimited bool   `json:"unlimited" bson:"unlimited"`
+	OpenTime  string `json:"open_time,omitempty" bson:"open_time,omitempty"`
+	CloseTime string `json:"close_time,omitempty" bson:"close_time,omitempty"`
+}
+-e 
+=== ./models/client.go ===
+
+package models
+
+import (
+	"sync"
+
+	"github.com/gorilla/websocket"
+)
+
+type Client struct {
+	ID      string
+	Conn    *websocket.Conn
+	Send    chan *PriceData
+	Symbols map[string]bool
+	mu      sync.RWMutex
+}
+
+func NewClient(id string, conn *websocket.Conn) *Client {
+	return &Client{
+		ID:      id,
+		Conn:    conn,
+		Send:    make(chan *PriceData, 256),
+		Symbols: make(map[string]bool),
+	}
+}
+
+func (c *Client) Subscribe(symbol string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Symbols[symbol] = true
+}
+
+func (c *Client) Unsubscribe(symbol string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.Symbols, symbol)
+}
+
+func (c *Client) IsSubscribed(symbol string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	_, ok := c.Symbols[symbol]
+	return ok
+}
+
+func (c *Client) Close() {
+	c.Conn.Close()
+	close(c.Send)
+}
+
+type SocketMessage struct {
+	Action string `json:"action"`
+	Symbol string `json:"symbol"`
+}
+
+type SubscriptionResponse struct {
+	Status  string   `json:"status"`
+	Message string   `json:"message"`
+	Symbols []string `json:"symbols,omitempty"`
+}
+
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+-e 
+=== ./models/transaction.go ===
+
+package models
+
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type TransactionType string
+
+const (
+	TransactionTypeDeposit    TransactionType = "DEPOSIT"
+	TransactionTypeWithdrawal TransactionType = "WITHDRAWAL"
+)
+
+type PaymentMethod string
+
+const (
+	PaymentMethodCardToCard     PaymentMethod = "CARD_TO_CARD"
+	PaymentMethodDepositReceipt PaymentMethod = "DEPOSIT_RECEIPT"
+)
+
+type TransactionStatus string
+
+const (
+	TransactionStatusPending  TransactionStatus = "PENDING"
+	TransactionStatusApproved TransactionStatus = "APPROVED"
+	TransactionStatusRejected TransactionStatus = "REJECTED"
+)
+
+type Transaction struct {
+	ID              primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	UserID          string             `json:"user_id" bson:"user_id"`
+	TransactionType TransactionType    `json:"transaction_type" bson:"transaction_type"`
+	PaymentMethod   PaymentMethod      `json:"payment_method" bson:"payment_method"`
+	Amount          float64            `json:"amount" bson:"amount"`
+	Status          TransactionStatus  `json:"status" bson:"status"`
+	ReceiptImage    string             `json:"receipt_image,omitempty" bson:"receipt_image,omitempty"`
+	RequestTime     time.Time          `json:"request_time" bson:"request_time"`
+	ResponseTime    *time.Time         `json:"response_time,omitempty" bson:"response_time,omitempty"`
+	AdminNote       string             `json:"admin_note,omitempty" bson:"admin_note,omitempty"`
+}
+-e 
+=== ./models/admin.go ===
+
+package models
+
+import (
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type AdminAccount struct {
+	ID               primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	Username         string             `json:"username" bson:"username"`
+	Password         string             `json:"password" bson:"password"`
+	AccountType      string             `json:"account_type" bson:"account_type"`
+	RegistrationDate string             `json:"registration_date" bson:"registration_date"`
+}
+-e 
+=== ./models/alert.go ===
+
+package models
+
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type AlertType string
+
+const (
+	AlertTypePrice AlertType = "PRICE"
+	AlertTypeTime  AlertType = "TIME"
+)
+
+type AlertStatus string
+
+const (
+	AlertStatusPending   AlertStatus = "PENDING"
+	AlertStatusTriggered AlertStatus = "TRIGGERED"
+	AlertStatusExpired   AlertStatus = "EXPIRED"
+)
+
+type Alert struct {
+	ID                 primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	UserID             string             `json:"user_id" bson:"user_id"`
+	SymbolName         string             `json:"symbol_name" bson:"symbol_name"`
+	AlertType          AlertType          `json:"alert_type" bson:"alert_type"`
+	Condition          AlertCondition     `json:"condition" bson:"condition"`
+	Status             AlertStatus        `json:"status" bson:"status"`
+	CreatedAt          time.Time          `json:"created_at" bson:"created_at"`
+	TriggeredAt        *time.Time         `json:"triggered_at,omitempty" bson:"triggered_at,omitempty"`
+	NotificationMethod string             `json:"notification_method" bson:"notification_method"`
+}
+
+type AlertCondition struct {
+	PriceTarget *float64   `json:"price_target,omitempty" bson:"price_target,omitempty"`
+	Comparison  string     `json:"comparison,omitempty" bson:"comparison,omitempty"`
+	TriggerTime *time.Time `json:"trigger_time,omitempty" bson:"trigger_time,omitempty"`
+}
+-e 
+=== ./models/price.go ===
+
+package models
+
+type PriceData struct {
+	Symbol    string  `json:"symbol"`
+	Ask       float64 `json:"ask"`
+	Bid       float64 `json:"bid"`
+	Timestamp int64   `json:"timestamp"`
+}
+-e 
+=== ./models/copy_trade.go ===
+
+package models
+
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type ActivceStatus string
+
+const (
+	Active   ActivceStatus = "active"
+	Inactive ActivceStatus = "inactive"
+)
+
+type CopyTradeSubscription struct {
+	ID              primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	FollowerID      string             `json:"follower_id" bson:"follower_id"`
+	LeaderID        string             `json:"leader_id" bson:"leader_id"`
+	AllocatedAmount float64            `json:"allocated_amount" bson:"allocated_amount"`
+	Status          ActivceStatus      `json:"status" bson:"status"`
+	CreatedAt       time.Time          `json:"created_at" bson:"created_at"`
+}
+
+type CopyTrade struct {
+	ID              primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
+	SubscriptionID  primitive.ObjectID `json:"subscription_id" bson:"subscription_id"`
+	LeaderTradeID   primitive.ObjectID `json:"leader_trade_id" bson:"leader_trade_id"`
+	FollowerTradeID primitive.ObjectID `json:"follower_trade_id" bson:"follower_trade_id"`
+	CreatedAt       time.Time          `json:"created_at" bson:"created_at"`
+}
+-e 
+=== ./api/log_handlers.go ===
+
+package api
+
+import (
+	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/gin-gonic/gin"
+)
+
+type LogHandler struct {
+	logService service.LogService
+}
+
+func NewLogHandler(logService service.LogService) *LogHandler {
+	return &LogHandler{logService: logService}
+}
+
+// @Summary Get all logs
+// @Description Retrieves a list of all system logs (admin only)
+// @Tags Logs
+// @Produce json
+// @Security BasicAuth
+// @Success 200 {array} models.LogEntry
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to retrieve logs"
+// @Router /admin/logs [get]
+func (h *LogHandler) GetAllLogs(c *gin.Context) {
+	logs, err := h.logService.GetAllLogs()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve logs"})
+		return
+	}
+	c.JSON(http.StatusOK, logs)
+}
+
+// @Summary Get logs by user ID
+// @Description Retrieves logs associated with a specific user ID (admin only)
+// @Tags Logs
+// @Produce json
+// @Security BasicAuth
+// @Param user_id path string true "User ID"
+// @Success 200 {array} models.LogEntry
+// @Failure 400 {object} map[string]string "Invalid user ID"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Router /admin/logs/user/{user_id} [get]
+func (h *LogHandler) GetLogsByUser(c *gin.Context) {
+	userID := c.Param("user_id")
+	logs, err := h.logService.GetLogsByUserID(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+	c.JSON(http.StatusOK, logs)
+}
+-e 
+=== ./api/symbol_handlers.go ===
+
+package api
+
+import (
+	"net/http"
+	"regexp"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type SymbolHandler struct {
+	symbolService service.SymbolService
+	logService    service.LogService
+}
+
+func NewSymbolHandler(symbolService service.SymbolService, logService service.LogService) *SymbolHandler {
+	return &SymbolHandler{symbolService: symbolService, logService: logService}
+}
+
+// @Summary Create a new symbol
+// @Description Adds a new trading symbol to the system (admin only)
+// @Tags Symbols
+// @Accept json
+// @Produce json
+// @Security BasicAuth
+// @Param symbol body models.Symbol true "Symbol data"
+// @Success 201 {object} map[string]string "Symbol created"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to create symbol"
+// @Router /admin/symbols [post]
+func (h *SymbolHandler) CreateSymbol(c *gin.Context) {
+	var symbol models.Symbol
+	if err := c.ShouldBindJSON(&symbol); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	if err := h.symbolService.CreateSymbol(&symbol); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create symbol"})
+		return
+	}
+
+	pattern := `^\d{2}:\d{2}$`
+	v, _ := regexp.MatchString(pattern, symbol.TradingHours.CloseTime)
+	m, _ := regexp.MatchString(pattern, symbol.TradingHours.OpenTime)
+	if !v || !m {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "symbol trading hours are not valid"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"symbol_id":   symbol.ID.Hex(),
+		"symbol_name": symbol.SymbolName,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "CreateSymbol", "Symbol created", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusCreated, gin.H{"status": "Symbol created", "symbol_id": symbol.ID.Hex()})
+}
+
+// @Summary Get symbol by ID
+// @Description Retrieves details of a trading symbol by ID
+// @Tags Symbols
+// @Produce json
+// @Param id path string true "Symbol ID"
+// @Success 200 {object} models.Symbol
+// @Failure 400 {object} map[string]string "Invalid symbol ID"
+// @Failure 404 {object} map[string]string "Symbol not found"
+// @Router /symbols/{id} [get]
+func (h *SymbolHandler) GetSymbol(c *gin.Context) {
+	id := c.Param("id")
+	symbol, err := h.symbolService.GetSymbol(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid symbol ID"})
+		return
+	}
+	if symbol == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Symbol not found"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"symbol_id": id,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "GetSymbol", "Symbol data retrieved", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, symbol)
+}
+
+// GetAllSymbols retrieves all symbols
+// @Summary Get all symbols
+// @Description Retrieves a list of all trading symbols
+// @Tags Symbols
+// @Produce json
+// @Success 200 {array} models.Symbol
+// @Failure 500 {object} map[string]string "Failed to retrieve symbols"
+// @Router /symbols [get]
+func (h *SymbolHandler) GetAllSymbols(c *gin.Context) {
+	symbols, err := h.symbolService.GetAllSymbols()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve symbols"})
+		return
+	}
+
+	h.logService.LogAction(primitive.ObjectID{}, "GetAllSymbols", "All symbols retrieved", c.ClientIP(), nil)
+
+	c.JSON(http.StatusOK, symbols)
+}
+
+// @Summary Update a symbol
+// @Description Updates the details of an existing trading symbol (admin only)
+// @Tags Symbols
+// @Accept json
+// @Produce json
+// @Security BasicAuth
+// @Param id path string true "Symbol ID"
+// @Param symbol body models.Symbol true "Updated symbol data"
+// @Success 200 {object} map[string]string "Symbol updated"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to update symbol"
+// @Router /admin/symbols/{id} [put]
+func (h *SymbolHandler) UpdateSymbol(c *gin.Context) {
+	id := c.Param("id")
+	var symbol models.Symbol
+	if err := c.ShouldBindJSON(&symbol); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	if err := h.symbolService.UpdateSymbol(id, &symbol); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update symbol"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"symbol_id": id,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "UpdateSymbol", "Symbol updated", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, gin.H{"status": "Symbol updated"})
+}
+
+// @Summary Delete a symbol
+// @Description Removes a trading symbol from the system (admin only)
+// @Tags Symbols
+// @Produce json
+// @Security BasicAuth
+// @Param id path string true "Symbol ID"
+// @Success 200 {object} map[string]string "Symbol deleted"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to delete symbol"
+// @Router /admin/symbols/{id} [delete]
+func (h *SymbolHandler) DeleteSymbol(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.symbolService.DeleteSymbol(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete symbol"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"symbol_id": id,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "DeleteSymbol", "Symbol deleted", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, gin.H{"status": "Symbol deleted"})
+}
+-e 
+=== ./api/transaction_handlers.go ===
+
+package api
+
+import (
+	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type TransactionHandler struct {
+	transactionService service.TransactionService
+	logService         service.LogService
+}
+
+func NewTransactionHandler(transactionService service.TransactionService, logService service.LogService) *TransactionHandler {
+	return &TransactionHandler{transactionService: transactionService, logService: logService}
+}
+
+// @Summary Request a new transaction
+// @Description Allows a user to request a deposit or withdrawal
+// @Tags Transactions
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param transaction body TransactionRequest true "Transaction data"
+// @Success 201 {object} map[string]string "Transaction requested"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to create transaction"
+// @Router /transactions [post]
+func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
+	var req TransactionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	userID := c.GetString("user_id")
+	transaction := &models.Transaction{
+		TransactionType: req.TransactionType,
+		PaymentMethod:   req.PaymentMethod,
+		Amount:          req.Amount,
+		ReceiptImage:    req.ReceiptImage,
+	}
+
+	if err := h.transactionService.CreateTransaction(userID, transaction); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"status": "Transaction requested", "transaction_id": transaction.ID.Hex()})
+}
+
+// @Summary Get user transactions
+// @Description Retrieves all transactions for the authenticated user
+// @Tags Transactions
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.Transaction
+// @Failure 400 {object} map[string]string "Invalid user ID"
+// @Failure 500 {object} map[string]string "Failed to retrieve transactions"
+// @Router /transactions [get]
+func (h *TransactionHandler) GetUserTransactions(c *gin.Context) {
+	userID := c.GetString("user_id")
+	transactions, err := h.transactionService.GetTransactionsByUserID(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, transactions)
+}
+
+// @Summary Get all transactions
+// @Description Retrieves a list of all transactions (admin only)
+// @Tags Transactions
+// @Produce json
+// @Security BasicAuth
+// @Success 200 {array} models.Transaction
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to retrieve transactions"
+// @Router /admin/transactions [get]
+func (h *TransactionHandler) GetAllTransactions(c *gin.Context) {
+	transactions, err := h.transactionService.GetAllTransactions()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve transactions"})
+		return
+	}
+	c.JSON(http.StatusOK, transactions)
+}
+
+// @Summary Get transactions by user ID
+// @Description Retrieves transactions for a specific user (admin only)
+// @Tags Transactions
+// @Produce json
+// @Security BasicAuth
+// @Param user_id path string true "User ID"
+// @Success 200 {array} models.Transaction
+// @Failure 400 {object} map[string]string "Invalid user ID"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to retrieve transactions"
+// @Router /admin/transactions/user/{user_id} [get]
+func (h *TransactionHandler) GetTransactionsByUser(c *gin.Context) {
+	userID := c.Param("user_id")
+	transactions, err := h.transactionService.GetTransactionsByUserID(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, transactions)
+}
+
+// @Summary Get transaction by ID
+// @Description Retrieves details of a specific transaction by its ID (admin only)
+// @Tags Transactions
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Transaction ID"
+// @Success 200 {object} models.Transaction
+// @Failure 400 {object} map[string]string "Invalid transaction ID"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 403 {object} map[string]string "Forbidden (non-admin)"
+// @Failure 404 {object} map[string]string "Transaction not found"
+// @Router /api/v1/transactions/{id} [get]
+func (h *TransactionHandler) GetTransactionByID(c *gin.Context) {
+	transactionID := c.Param("id")
+	transaction, err := h.transactionService.GetTransactionByID(transactionID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid transaction ID"})
+		return
+	}
+	if transaction == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Transaction not found"})
+		return
+	}
+
+	adminID := c.GetString("user_id")
+	adminObjID, _ := primitive.ObjectIDFromHex(adminID)
+	metadata := map[string]interface{}{
+		"admin_id":       adminID,
+		"transaction_id": transactionID,
+	}
+	h.logService.LogAction(adminObjID, "GetTransactionByID", "Transaction data retrieved", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, transaction)
+}
+
+// @Summary Review a transaction
+// @Description Approves or rejects a transaction with an optional note (admin only)
+// @Tags Transactions
+// @Accept json
+// @Produce json
+// @Security BasicAuth
+// @Param id path string true "Transaction ID"
+// @Param review body TransactionReviewRequest true "Review data"
+// @Success 200 {object} map[string]string "Transaction reviewed"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to review transaction"
+// @Router /admin/transactions/{id} [put]
+func (h *TransactionHandler) ReviewTransaction(c *gin.Context) {
+	id := c.Param("id")
+	var req TransactionReviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	if err := h.transactionService.ReviewTransaction(id, req.Status, req.AdminNote); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"transaction_id": id,
+		"status":         req.Status,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "ReviewTransaction", "Transaction reviewed", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, gin.H{"status": "Transaction reviewed"})
+}
+
+type TransactionRequest struct {
+	TransactionType models.TransactionType `json:"transaction_type" binding:"required,oneof=DEPOSIT WITHDRAWAL"`
+	PaymentMethod   models.PaymentMethod   `json:"payment_method" binding:"required,oneof=CARD_TO_CARD DEPOSIT_RECEIPT"`
+	Amount          float64                `json:"amount" binding:"required,gt=0"`
+	ReceiptImage    string                 `json:"receipt_image,omitempty"`
+}
+
+type TransactionReviewRequest struct {
+	Status    models.TransactionStatus `json:"status" binding:"required,oneof=APPROVED REJECTED"`
+	AdminNote string                   `json:"admin_note,omitempty"`
+}
+-e 
+=== ./api/docs.go ===
+
+package api
+
+// @title FXTrader API
+// @version 1.0
+// @description API for the FXTrader app
+// @host localhost:7000
+// @BasePath /api
+// @schemes http
+// @securityDefinitions.basic BasicAuth
+func init() {}
+-e 
+=== ./api/handlers.go ===
+
+package api
+
+import (
+	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type PriceHandler struct {
+	priceService service.PriceService
+	logService   service.LogService
+}
+
+func NewPriceHandler(priceService service.PriceService, logService service.LogService) *PriceHandler {
+	return &PriceHandler{priceService: priceService, logService: logService}
+}
+
+// @Summary Process new price data
+// @Description Receives and processes price data for a trading symbol
+// @Tags Prices
+// @Accept json
+// @Produce json
+// @Param priceData body models.PriceData true "Price data"
+// @Success 200 {object} map[string]string "Price received"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 500 {object} map[string]string "Failed to process price"
+// @Router /prices [post]
+func (h *PriceHandler) HandlePrice(c *gin.Context) {
+	var priceData models.PriceData
+	if err := c.ShouldBindJSON(&priceData); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	if err := h.priceService.ProcessPrice(&priceData); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to process price"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"symbol":    priceData.Symbol,
+		"ask":       priceData.Ask,
+		"bid":       priceData.Bid,
+		"timestamp": priceData.Timestamp,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "ProcessPrice", "Processed new price data", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, gin.H{"status": "Price received"})
+}
+-e 
+=== ./api/trade_handlers.go ===
+
+package api
+
+import (
+	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type TradeHandler struct {
+	tradeService service.TradeService
+	logService   service.LogService
+}
+
+func NewTradeHandler(tradeService service.TradeService, logService service.LogService) *TradeHandler {
+	return &TradeHandler{tradeService: tradeService, logService: logService}
+}
+
+// @Summary Place a new trade
+// @Description Allows an authenticated user to place a trade order
+// @Tags Trades
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param trade body TradeRequest true "Trade order data"
+// @Success 201 {object} map[string]string "Trade placed"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/trades [post]
+func (h *TradeHandler) PlaceTrade(c *gin.Context) {
+	var req TradeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	userID := c.GetString("user_id")
+	trade, err := h.tradeService.PlaceTrade(userID, req.SymbolName, req.TradeType, req.Leverage, req.Volume, req.EntryPrice)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"user_id":    userID,
+		"trade_id":   trade.ID.Hex(),
+		"symbol":     req.SymbolName,
+		"trade_type": req.TradeType,
+	}
+	h.logService.LogAction(trade.UserID, "PlaceTrade", "Trade order placed", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusCreated, gin.H{"status": "Trade placed", "trade_id": trade.ID.Hex()})
+}
+
+// @Summary Get user trades
+// @Description Retrieves a list of trades for the authenticated user
+// @Tags Trades
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.TradeHistory
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/trades [get]
+func (h *TradeHandler) GetUserTrades(c *gin.Context) {
+	userID := c.GetString("user_id")
+	trades, err := h.tradeService.GetTradesByUserID(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve trades"})
+		return
+	}
+
+	userObjID, _ := primitive.ObjectIDFromHex(userID)
+	metadata := map[string]interface{}{
+		"user_id": userID,
+		"count":   len(trades),
+	}
+	h.logService.LogAction(userObjID, "GetUserTrades", "Retrieved user trades", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, trades)
+}
+
+// @Summary Get trade by ID
+// @Description Retrieves details of a specific trade by its ID (user or admin)
+// @Tags Trades
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Trade ID"
+// @Success 200 {object} models.TradeHistory
+// @Failure 400 {object} map[string]string "Invalid trade ID"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 403 {object} map[string]string "Forbidden (trade belongs to another user)"
+// @Failure 404 {object} map[string]string "Trade not found"
+// @Router /api/trades/{id} [get]
+func (h *TradeHandler) GetTrade(c *gin.Context) {
+	tradeID := c.Param("id")
+	userID := c.GetString("user_id")
+
+	trade, err := h.tradeService.GetTrade(tradeID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid trade ID"})
+		return
+	}
+	if trade == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Trade not found"})
+		return
+	}
+
+	// Admin
+	// if trade.UserID.Hex() != userID {
+	// 	c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden (trade belongs to another user)"})
+	// 	return
+	// }
+
+	userObjID, _ := primitive.ObjectIDFromHex(userID)
+	metadata := map[string]interface{}{
+		"user_id":  userID,
+		"trade_id": tradeID,
+	}
+	h.logService.LogAction(userObjID, "GetTrade", "Trade data retrieved", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, trade)
+}
+
+// @Summary Handle trade response from MT5
+// @Description Processes trade response from MT5 EA
+// @Tags Trades
+// @Accept json
+// @Produce json
+// @Param response body service.TradeResponse true "Trade response data"
+// @Success 200 {object} map[string]string "Response processed"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/trade-response [post]
+func (h *TradeHandler) HandleTradeResponse(c *gin.Context) {
+	var response service.TradeResponse
+	if err := c.ShouldBindJSON(&response); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	if err := h.tradeService.HandleTradeResponse(response); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "Response processed"})
+}
+
+// @Summary Get all trades
+// @Description Retrieves a list of all trades (admin only)
+// @Tags Trades
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.TradeHistory
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 403 {object} map[string]string "Forbidden (non-admin)"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/v1/admin/trades [get]
+func (h *TradeHandler) GetAllTrades(c *gin.Context) {
+	trades, err := h.tradeService.GetAllTrades()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve trades"})
+		return
+	}
+
+	userID := c.GetString("user_id")
+	userObjID, _ := primitive.ObjectIDFromHex(userID)
+	metadata := map[string]interface{}{
+		"admin_id": userID,
+		"count":    len(trades),
+	}
+	h.logService.LogAction(userObjID, "GetAllTrades", "Retrieved all trades", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, trades)
+}
+
+type TradeRequest struct {
+	SymbolName string           `json:"symbol_name" binding:"required"`
+	TradeType  models.TradeType `json:"trade_type" binding:"required,oneof=BUY SELL"`
+	Leverage   int              `json:"leverage" binding:"required,gt=0"`
+	Volume     float64          `json:"volume" binding:"required,gt=0"`
+	EntryPrice float64          `json:"entry_price" binding:"required,gt=0"`
+}
+-e 
+=== ./api/rules_handlers.go ===
+
+package api
+
+import (
+	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/gin-gonic/gin"
+)
+
+type RuleHandler struct {
+	ruleService service.RuleService
+}
+
+func NewRuleHandler(ruleService service.RuleService) *RuleHandler {
+	return &RuleHandler{ruleService: ruleService}
+}
+
+// @Summary Create a new rule
+// @Description Adds a new rule to the system (admin only)
+// @Tags Rules
+// @Accept json
+// @Produce json
+// @Security BasicAuth
+// @Param rule body models.Rule true "Rule data"
+// @Success 201 {object} map[string]string "Rule created"
+// @Failure 400 {object} map[string]string "Invalid JSON or empty content"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to create rule"
+// @Router /admin/rules [post]
+func (h *RuleHandler) CreateRule(c *gin.Context) {
+	var rule models.Rule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	if rule.Content == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Rule content cannot be empty"})
+		return
+	}
+
+	if err := h.ruleService.CreateRule(&rule); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create rule"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"status": "Rule created", "rule_id": rule.ID.Hex()})
+}
+
+// @Summary Get rule by ID
+// @Description Retrieves details of a rule by ID (admin only)
+// @Tags Rules
+// @Produce json
+// @Security BasicAuth
+// @Param id path string true "Rule ID"
+// @Success 200 {object} models.Rule
+// @Failure 400 {object} map[string]string "Invalid rule ID"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 404 {object} map[string]string "Rule not found"
+// @Router /admin/rules/{id} [get]
+func (h *RuleHandler) GetRule(c *gin.Context) {
+	id := c.Param("id")
+	rule, err := h.ruleService.GetRule(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid rule ID"})
+		return
+	}
+	if rule == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Rule not found"})
+		return
+	}
+	c.JSON(http.StatusOK, rule)
+}
+
+// @Summary Get all rules
+// @Description Retrieves a list of all rules (accessible to all users)
+// @Tags Rules
+// @Produce json
+// @Success 200 {array} models.Rule
+// @Failure 500 {object} map[string]string "Failed to retrieve rules"
+// @Router /rules [get]
+func (h *RuleHandler) GetAllRules(c *gin.Context) {
+	rules, err := h.ruleService.GetAllRules()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve rules"})
+		return
+	}
+	c.JSON(http.StatusOK, rules)
+}
+
+// @Summary Update a rule
+// @Description Updates the content of an existing rule (admin only)
+// @Tags Rules
+// @Accept json
+// @Produce json
+// @Security BasicAuth
+// @Param id path string true "Rule ID"
+// @Param rule body models.Rule true "Updated rule data"
+// @Success 200 {object} map[string]string "Rule updated"
+// @Failure 400 {object} map[string]string "Invalid JSON or empty content"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to update rule"
+// @Router /admin/rules/{id} [put]
+func (h *RuleHandler) UpdateRule(c *gin.Context) {
+	id := c.Param("id")
+	var rule models.Rule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	if rule.Content == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Rule content cannot be empty"})
+		return
+	}
+
+	if err := h.ruleService.UpdateRule(id, &rule); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update rule"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "Rule updated"})
+}
+
+// @Summary Delete a rule
+// @Description Removes a rule from the system (admin only)
+// @Tags Rules
+// @Produce json
+// @Security BasicAuth
+// @Param id path string true "Rule ID"
+// @Success 200 {object} map[string]string "Rule deleted"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to delete rule"
+// @Router /admin/rules/{id} [delete]
+func (h *RuleHandler) DeleteRule(c *gin.Context) {
+	id := c.Param("id")
+	if err := h.ruleService.DeleteRule(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete rule"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "Rule deleted"})
+}
+-e 
+=== ./api/overview_handlers.go ===
+
+package api
+
+import (
+	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type OverviewHandler struct {
+	userService        service.UserService
+	tradeService       service.TradeService
+	transactionService service.TransactionService
+	symbolService      service.SymbolService
+	logService         service.LogService
+}
+
+func NewOverviewHandler(
+	userService service.UserService,
+	tradeService service.TradeService,
+	transactionService service.TransactionService,
+	symbolService service.SymbolService,
+	logService service.LogService,
+) *OverviewHandler {
+	return &OverviewHandler{
+		userService:        userService,
+		tradeService:       tradeService,
+		transactionService: transactionService,
+		symbolService:      symbolService,
+		logService:         logService,
+	}
+}
+
+// @Summary Admin overview
+// @Description Provides an overview of platform statistics
+// @Tags Admin
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} OverviewResponse
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 403 {object} map[string]string "Forbidden (non-admin)"
+// @Failure 500 {object} map[string]string "Failed to retrieve overview data"
+// @Router /admin/overview [get]
+func (h *OverviewHandler) GetOverview(c *gin.Context) {
+	isAdmin := c.GetBool("is_admin")
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden (non-admin)"})
+		return
+	}
+
+	users, err := h.userService.GetAllUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve user data"})
+		return
+	}
+	userCount := len(users)
+
+	trades, err := h.tradeService.GetAllTrades()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve trade data"})
+		return
+	}
+	totalTrades := len(trades)
+	pendingTrades := 0
+	symbolCounts := make(map[string]int)
+	for _, trade := range trades {
+		if trade.Status == models.TradeStatusPending {
+			pendingTrades++
+		}
+		symbolCounts[trade.SymbolName]++
+	}
+
+	// Get transaction counts
+	transactions, err := h.transactionService.GetAllTransactions()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve transaction data"})
+		return
+	}
+	totalTransactions := len(transactions)
+	pendingTransactions := 0
+	for _, transaction := range transactions {
+		if transaction.Status == models.TransactionStatusPending {
+			pendingTransactions++
+		}
+	}
+
+	var topSymbols []SymbolUsage
+	for symbol, count := range symbolCounts {
+		topSymbols = append(topSymbols, SymbolUsage{SymbolName: symbol, TradeCount: count})
+	}
+
+	for i := 0; i < len(topSymbols)-1; i++ {
+		for j := i + 1; j < len(topSymbols); j++ {
+			if topSymbols[i].TradeCount < topSymbols[j].TradeCount {
+				topSymbols[i], topSymbols[j] = topSymbols[j], topSymbols[i]
+			}
+		}
+	}
+
+	if len(topSymbols) > 5 {
+		topSymbols = topSymbols[:5]
+	}
+
+	response := OverviewResponse{
+		UserCount:           userCount,
+		TotalTrades:         totalTrades,
+		PendingTrades:       pendingTrades,
+		TotalTransactions:   totalTransactions,
+		PendingTransactions: pendingTransactions,
+		TopSymbols:          topSymbols,
+	}
+
+	adminID := c.GetString("user_id")
+	adminObjID, _ := primitive.ObjectIDFromHex(adminID)
+	metadata := map[string]interface{}{
+		"admin_id":             adminID,
+		"user_count":           userCount,
+		"total_trades":         totalTrades,
+		"pending_trades":       pendingTrades,
+		"total_transactions":   totalTransactions,
+		"pending_transactions": pendingTransactions,
+	}
+	h.logService.LogAction(adminObjID, "GetOverview", "Admin overview data retrieved", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, response)
+}
+
+type OverviewResponse struct {
+	UserCount           int           `json:"user_count"`
+	TotalTrades         int           `json:"total_trades"`
+	PendingTrades       int           `json:"pending_trades"`
+	TotalTransactions   int           `json:"total_transactions"`
+	PendingTransactions int           `json:"pending_transactions"`
+	TopSymbols          []SymbolUsage `json:"top_symbols"`
+}
+
+type SymbolUsage struct {
+	SymbolName string `json:"symbol_name"`
+	TradeCount int    `json:"trade_count"`
+}
+-e 
+=== ./api/alert_handlers.go ===
+
+package api
+
+import (
+	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type AlertHandler struct {
+	alertService service.AlertService
+	logService   service.LogService
+}
+
+func NewAlertHandler(alertService service.AlertService, logService service.LogService) *AlertHandler {
+	return &AlertHandler{alertService: alertService, logService: logService}
+}
+
+// @Summary Create a new alert
+// @Description Allows a user to create a price or time-based alert
+// @Tags Alerts
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param alert body AlertRequest true "Alert data"
+// @Success 201 {object} map[string]string "Alert created"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to create alert"
+// @Router /alerts [post]
+func (h *AlertHandler) CreateAlert(c *gin.Context) {
+	var req AlertRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	userID := c.GetString("user_id")
+	alert := &models.Alert{
+		SymbolName:         req.SymbolName,
+		AlertType:          req.AlertType,
+		Condition:          req.Condition,
+		NotificationMethod: req.NotificationMethod,
+	}
+
+	if err := h.alertService.CreateAlert(userID, alert); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"alert_id":    alert.ID.Hex(),
+		"symbol_name": alert.SymbolName,
+		"alert_type":  alert.AlertType,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "CreateAlert", "Alert created", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusCreated, gin.H{"status": "Alert created", "alert_id": alert.ID.Hex()})
+}
+
+// @Summary Get user alerts
+// @Description Retrieves all alerts for the authenticated user
+// @Tags Alerts
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.Alert
+// @Failure 400 {object} map[string]string "Invalid user ID"
+// @Failure 500 {object} map[string]string "Failed to retrieve alerts"
+// @Router /alerts [get]
+func (h *AlertHandler) GetUserAlerts(c *gin.Context) {
+	userID := c.GetString("user_id")
+	alerts, err := h.alertService.GetAlertsByUserID(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"user_id": userID,
+		"count":   len(alerts),
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "GetUserAlerts", "User alerts retrieved", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, alerts)
+}
+
+// @Summary Get alert by ID
+// @Description Retrieves details of a specific alert
+// @Tags Alerts
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Alert ID"
+// @Success 200 {object} models.Alert
+// @Failure 400 {object} map[string]string "Invalid alert ID"
+// @Failure 404 {object} map[string]string "Alert not found"
+// @Router /alerts/{id} [get]
+func (h *AlertHandler) GetAlert(c *gin.Context) {
+	alertID := c.Param("id")
+	alert, err := h.alertService.GetAlert(alertID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid alert ID"})
+		return
+	}
+	if alert == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Alert not found"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"alert_id": alertID,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "GetAlert", "Alert data retrieved", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, alert)
+}
+
+type AlertRequest struct {
+	SymbolName         string                `json:"symbol_name" binding:"required"`
+	AlertType          models.AlertType      `json:"alert_type" binding:"required,oneof=PRICE TIME"`
+	Condition          models.AlertCondition `json:"condition" binding:"required"`
+	NotificationMethod string                `json:"notification_method" binding:"required,oneof=SMS EMAIL"`
+}
+-e 
+=== ./api/routes.go ===
+
+package api
+
+import (
+	"os"
+	"path/filepath"
+
+	"github.com/mehrbod2002/fxtrader/internal/config"
+	"github.com/mehrbod2002/fxtrader/internal/middleware"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+	"github.com/mehrbod2002/fxtrader/internal/service"
+	"github.com/mehrbod2002/fxtrader/internal/ws"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+)
+
+func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertService, copyTradeService service.CopyTradeService, priceService service.PriceService, adminRepo repository.AdminRepository, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, tradeService service.TradeService, transactionService service.TransactionService, wsHandler *ws.WebSocketHandler, baseURL string) {
+	// r.SetTrustedProxies([]string{})
+
+	r.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "User-Agent", "Referer"},
+		ExposeHeaders:    []string{"Content-Length", "User-Agent", "Referer"},
+		AllowCredentials: true,
+	}))
+
+	priceHandler := NewPriceHandler(priceService, logService)
+	userHandler := NewUserHandler(userService, logService, cfg)
+	symbolHandler := NewSymbolHandler(symbolService, logService)
+	logHandler := NewLogHandler(logService)
+	ruleHandler := NewRuleHandler(ruleService)
+	tradeHandler := NewTradeHandler(tradeService, logService)
+	transactionHandler := NewTransactionHandler(transactionService, logService)
+	adminHandler := NewAdminHandler(adminRepo, cfg)
+	alertHandler := NewAlertHandler(alertService, logService)
+	copyTradeHandler := NewCopyTradeHandler(copyTradeService, logService)
+
+	wd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+
+	staticPath := filepath.Join(wd, "..", "..", "static")
+	r.Static("/static", staticPath)
+
+	r.GET("/chart", func(c *gin.Context) {
+		symbolFile := filepath.Join(staticPath, "symbol.html")
+		if _, err := os.Stat(symbolFile); os.IsNotExist(err) {
+			c.String(404, "symbol.html not found")
+			return
+		}
+		c.File(symbolFile)
+	})
+
+	wdRoot := filepath.Join(wd, "..", "..")
+	swaggerJSONPath := filepath.Join(wdRoot, "docs", "swagger.json")
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.URL("/docs/swagger.json")))
+	r.GET("/docs/swagger.json", func(c *gin.Context) {
+		c.File(swaggerJSONPath)
+	})
+
+	v1 := r.Group("/api/v1")
+	{
+		v1.POST("/prices", priceHandler.HandlePrice)
+		v1.POST("/users/signup", userHandler.SignupUser)
+		v1.POST("/users/login", userHandler.Login)
+		v1.GET("/users/:id", middleware.UserAuthMiddleware(userService), userHandler.GetUser)
+		v1.GET("/symbols", symbolHandler.GetAllSymbols)
+		v1.GET("/symbols/:id", symbolHandler.GetSymbol)
+		v1.GET("/rules", ruleHandler.GetAllRules)
+		v1.POST("/admin/login", adminHandler.AdminLogin)
+
+		user := v1.Group("/").Use(middleware.UserAuthMiddleware(userService))
+		{
+			user.POST("/trades", tradeHandler.PlaceTrade)
+			user.GET("/trades", tradeHandler.GetUserTrades)
+			user.GET("/trades/:id", tradeHandler.GetTrade)
+			user.POST("/transactions", transactionHandler.CreateTransaction)
+			user.GET("/transactions", transactionHandler.GetUserTransactions)
+			user.POST("/alerts", alertHandler.CreateAlert)
+			user.GET("/alerts", alertHandler.GetUserAlerts)
+			user.GET("/alerts/:id", alertHandler.GetAlert)
+			user.POST("/copy-trades", copyTradeHandler.CreateSubscription)
+			user.GET("/copy-trades", copyTradeHandler.GetUserSubscriptions)
+			user.GET("/copy-trades/:id", copyTradeHandler.GetSubscription)
+		}
+
+		admin := v1.Group("/admin").Use(middleware.AdminAuthMiddleware(cfg))
+		{
+			admin.GET("/symbols", symbolHandler.GetAllSymbols)
+			admin.POST("/symbols", symbolHandler.CreateSymbol)
+			admin.PUT("/symbols/:id", symbolHandler.UpdateSymbol)
+			admin.DELETE("/symbols/:id", symbolHandler.DeleteSymbol)
+			admin.GET("/logs", logHandler.GetAllLogs)
+			admin.GET("/logs/user/:user_id", logHandler.GetLogsByUser)
+			admin.POST("/rules", ruleHandler.CreateRule)
+			admin.GET("/rules", ruleHandler.GetAllRules)
+			admin.GET("/rules/:id", ruleHandler.GetRule)
+			admin.PUT("/rules/:id", ruleHandler.UpdateRule)
+			admin.DELETE("/rules/:id", ruleHandler.DeleteRule)
+			admin.GET("/users", userHandler.GetAllUsers)
+			admin.GET("/trades", tradeHandler.GetAllTrades)
+			admin.GET("/trades/:id", tradeHandler.GetTrade)
+			admin.GET("/transactions", transactionHandler.GetAllTransactions)
+			admin.GET("/transactions/id/:user_id", transactionHandler.GetTransactionByID)
+			admin.GET("/transactions/user/:user_id", transactionHandler.GetTransactionsByUser)
+			admin.GET("/transactions/:id", transactionHandler.GetTransactionByID)
+			admin.PUT("/transactions/:id", transactionHandler.ReviewTransaction)
+		}
+	}
+
+	r.GET("/ws", wsHandler.HandleConnection)
+}
+-e 
+=== ./api/admin_handlers.go ===
+
+package api
+
+import (
+	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/middleware"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"github.com/mehrbod2002/fxtrader/internal/config"
+
+	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type AdminHandler struct {
+	adminRepo repository.AdminRepository
+	cfg       *config.Config
+}
+
+func NewAdminHandler(adminRepo repository.AdminRepository, cfg *config.Config) *AdminHandler {
+	return &AdminHandler{adminRepo: adminRepo, cfg: cfg}
+}
+
+type AdminLoginRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+// @Summary Admin login
+// @Description Authenticates an admin user and returns a JWT token
+// @Tags Admin
+// @Accept json
+// @Produce json
+// @Param credentials body AdminLoginRequest true "Admin credentials"
+// @Success 200 {object} map[string]string "JWT token"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 401 {object} map[string]string "Invalid credentials"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /admin/login [post]
+func (h *AdminHandler) AdminLogin(c *gin.Context) {
+	var req AdminLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	admin, err := h.adminRepo.GetAdminByUsername(req.Username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve admin"})
+		return
+	}
+	if admin == nil || admin.AccountType != "admin" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+
+	token, err := middleware.GenerateAdminJWT(admin.ID.Hex(), h.cfg)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "Login successful",
+		"token":  token,
+	})
+}
+-e 
+=== ./api/user_handlers.go ===
+
+package api
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/config"
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type LoginRequest struct {
+	TelegramID string `json:"telegram_id" binding:"required"`
+}
+
+type UserHandler struct {
+	userService service.UserService
+	logService  service.LogService
+	cfg         *config.Config
+}
+
+func NewUserHandler(userService service.UserService, logService service.LogService, cfg *config.Config) *UserHandler {
+	return &UserHandler{userService: userService, logService: logService, cfg: cfg}
+}
+
+// @Summary Sign up a new user
+// @Description Creates a new user account via Telegram
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param user body SignupRequest true "User account details"
+// @Success 201 {object} map[string]interface{} "User created"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 409 {object} map[string]string "User already exists"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /users/signup [post]
+func (h *UserHandler) SignupUser(c *gin.Context) {
+	var req models.UserAccount
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	existingUser, err := h.userService.GetUserByTelegramID(req.TelegramID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing user"})
+		return
+	}
+	if existingUser != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "User with this Telegram ID already exists"})
+		return
+	}
+
+	user := &models.UserAccount{
+		ID:               primitive.NewObjectID(),
+		FullName:         req.FullName,
+		PhoneNumber:      req.PhoneNumber,
+		TelegramID:       req.TelegramID,
+		Username:         req.Username,
+		CardNumber:       req.CardNumber,
+		Citizenship:      req.Citizenship,
+		NationalID:       req.NationalID,
+		AccountType:      "user",
+		RegistrationDate: time.Now().Format(time.RFC3339),
+	}
+
+	if user.Username == "" {
+		user.Username = "user_" + user.TelegramID
+	}
+
+	if err := h.userService.SignupUser(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"username": user.Username,
+		"user_id":  user.ID.Hex(),
+	}
+	h.logService.LogAction(user.ID, "UserSignup", "User signed up via Telegram", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusCreated, gin.H{
+		"status":  "User created",
+		"user_id": user.ID.Hex(),
+		"user":    user,
+	})
+}
+
+// @Summary User login
+// @Description Validates a user via Telegram ID
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param credentials body LoginRequest true "Telegram ID"
+// @Success 200 {object} map[string]interface{} "User details"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 401 {object} map[string]string "User not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /users/login [post]
+func (h *UserHandler) Login(c *gin.Context) {
+	var req LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	user, err := h.userService.GetUserByTelegramID(req.TelegramID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve user"})
+		return
+	}
+	if user == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"user_id": user.ID.Hex(),
+	}
+	h.logService.LogAction(user.ID, "UserLogin", "User logged in via Telegram", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "Login successful",
+		"user":   user,
+	})
+}
+
+// @Summary Get user by ID
+// @Description Retrieves details of a user by their ID
+// @Tags Users
+// @Produce json
+// @Param id path string true "User ID"
+// @Success 200 {object} models.UserAccount
+// @Failure 400 {object} map[string]string "Invalid user ID"
+// @Failure 404 {object} map[string]string "User not found"
+// @Router /users/{id} [get]
+func (h *UserHandler) GetUser(c *gin.Context) {
+	id := c.Param("id")
+	user, err := h.userService.GetUserByTelegramID(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+	if user == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"id": id,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "GetUser", "User data retrieved", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, user)
+}
+
+// @Summary Get all users
+// @Description Retrieves a list of all users
+// @Tags Users
+// @Produce json
+// @Success 200 {array} models.UserAccount
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /users [get]
+func (h *UserHandler) GetAllUsers(c *gin.Context) {
+	users, err := h.userService.GetAllUsers()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve users"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"count": len(users),
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "GetAllUsers", "Retrieved all users", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, users)
+}
+-e 
+=== ./api/copy_trade_handlers.go ===
+
+package api
+
+import (
+	"net/http"
+
+	"github.com/mehrbod2002/fxtrader/internal/service"
+
+	"github.com/gin-gonic/gin"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type CopyTradeHandler struct {
+	copyTradeService service.CopyTradeService
+	logService       service.LogService
+}
+
+func NewCopyTradeHandler(copyTradeService service.CopyTradeService, logService service.LogService) *CopyTradeHandler {
+	return &CopyTradeHandler{copyTradeService: copyTradeService, logService: logService}
+}
+
+// @Summary Create a copy trade subscription
+// @Description Allows a user to follow a trader and allocate funds for copy trading
+// @Tags CopyTrading
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param subscription body CopyTradeRequest true "Subscription data"
+// @Success 201 {object} map[string]string "Subscription created"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to create subscription"
+// @Router /copy-trades [post]
+func (h *CopyTradeHandler) CreateSubscription(c *gin.Context) {
+	var req CopyTradeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	followerID := c.GetString("user_id")
+	subscription, err := h.copyTradeService.CreateSubscription(followerID, req.LeaderID, req.AllocatedAmount)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"subscription_id": subscription.ID.Hex(),
+		"follower_id":     followerID,
+		"leader_id":       req.LeaderID,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "CreateCopySubscription", "Copy trade subscription created", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusCreated, gin.H{"status": "Subscription created", "subscription_id": subscription.ID.Hex()})
+}
+
+// @Summary Get user copy trade subscriptions
+// @Description Retrieves all copy trade subscriptions for the authenticated user
+// @Tags CopyTrading
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.CopyTradeSubscription
+// @Failure 400 {object} map[string]string "Invalid user ID"
+// @Failure 500 {object} map[string]string "Failed to retrieve subscriptions"
+// @Router /copy-trades [get]
+func (h *CopyTradeHandler) GetUserSubscriptions(c *gin.Context) {
+	followerID := c.GetString("user_id")
+	subscriptions, err := h.copyTradeService.GetSubscriptionsByFollowerID(followerID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"follower_id": followerID,
+		"count":       len(subscriptions),
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "GetCopySubscriptions", "User copy subscriptions retrieved", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, subscriptions)
+}
+
+// @Summary Get copy trade subscription by ID
+// @Description Retrieves details of a specific copy trade subscription
+// @Tags CopyTrading
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Subscription ID"
+// @Success 200 {object} models.CopyTradeSubscription
+// @Failure 400 {object} map[string]string "Invalid subscription ID"
+// @Failure 404 {object} map[string]string "Subscription not found"
+// @Router /copy-trades/{id} [get]
+func (h *CopyTradeHandler) GetSubscription(c *gin.Context) {
+	subscriptionID := c.Param("id")
+	subscription, err := h.copyTradeService.GetSubscription(subscriptionID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid subscription ID"})
+		return
+	}
+	if subscription == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Subscription not found"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"subscription_id": subscriptionID,
+	}
+	h.logService.LogAction(primitive.ObjectID{}, "GetCopySubscription", "Copy subscription data retrieved", c.ClientIP(), metadata)
+
+	c.JSON(http.StatusOK, subscription)
+}
+
+type CopyTradeRequest struct {
+	LeaderID        string  `json:"leader_id" binding:"required"`
+	AllocatedAmount float64 `json:"allocated_amount" binding:"required,gt=0"`
+}
+-e 
+=== ./service/transaction_service.go ===
+
+package service
+
+import (
+	"errors"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type TransactionService interface {
+	CreateTransaction(userID string, transaction *models.Transaction) error
+	GetTransactionByID(id string) (*models.Transaction, error)
+	GetTransactionsByUserID(userID string) ([]*models.Transaction, error)
+	GetAllTransactions() ([]*models.Transaction, error)
+	ReviewTransaction(id string, status models.TransactionStatus, adminNote string) error
+}
+
+type transactionService struct {
+	transactionRepo repository.TransactionRepository
+	logService      LogService
+}
+
+func NewTransactionService(transactionRepo repository.TransactionRepository, logService LogService) TransactionService {
+	return &transactionService{
+		transactionRepo: transactionRepo,
+		logService:      logService,
+	}
+}
+
+func (s *transactionService) CreateTransaction(userID string, transaction *models.Transaction) error {
+	if transaction.TransactionType != models.TransactionTypeDeposit && transaction.TransactionType != models.TransactionTypeWithdrawal {
+		return errors.New("invalid transaction type")
+	}
+	if transaction.PaymentMethod != models.PaymentMethodCardToCard && transaction.PaymentMethod != models.PaymentMethodDepositReceipt {
+		return errors.New("invalid payment method")
+	}
+	if transaction.Amount <= 0 {
+		return errors.New("amount must be positive")
+	}
+	if transaction.PaymentMethod == models.PaymentMethodDepositReceipt && transaction.ReceiptImage == "" {
+		return errors.New("receipt image required for deposit receipt method")
+	}
+
+	transaction.UserID = userID
+	transaction.Status = models.TransactionStatusPending
+
+	err := s.transactionRepo.SaveTransaction(transaction)
+	if err != nil {
+		return err
+	}
+
+	metadata := map[string]interface{}{
+		"transaction_id":   transaction.ID.Hex(),
+		"transaction_type": transaction.TransactionType,
+		"payment_method":   transaction.PaymentMethod,
+		"amount":           transaction.Amount,
+	}
+	s.logService.LogAction(primitive.ObjectID{}, "CreateTransaction", "Transaction requested", "", metadata)
+
+	return nil
+}
+
+func (s *transactionService) GetTransactionByID(id string) (*models.Transaction, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, errors.New("invalid transaction ID")
+	}
+	return s.transactionRepo.GetTransactionByID(objID)
+}
+
+func (s *transactionService) GetTransactionsByUserID(userID string) ([]*models.Transaction, error) {
+	objID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, errors.New("invalid user ID")
+	}
+	return s.transactionRepo.GetTransactionsByUserID(objID)
+}
+
+func (s *transactionService) GetAllTransactions() ([]*models.Transaction, error) {
+	return s.transactionRepo.GetAllTransactions()
+}
+
+func (s *transactionService) ReviewTransaction(id string, status models.TransactionStatus, adminNote string) error {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return errors.New("invalid transaction ID")
+	}
+
+	transaction, err := s.transactionRepo.GetTransactionByID(objID)
+	if err != nil {
+		return err
+	}
+	if transaction == nil {
+		return errors.New("transaction not found")
+	}
+
+	if status != models.TransactionStatusApproved && status != models.TransactionStatusRejected {
+		return errors.New("invalid status; must be APPROVED or REJECTED")
+	}
+
+	if transaction.Status != models.TransactionStatusPending {
+		return errors.New("transaction already reviewed")
+	}
+
+	responseTime := time.Now()
+	transaction.Status = status
+	transaction.ResponseTime = &responseTime
+	transaction.AdminNote = adminNote
+
+	err = s.transactionRepo.UpdateTransaction(objID, transaction)
+	if err != nil {
+		return err
+	}
+
+	metadata := map[string]interface{}{
+		"transaction_id": id,
+		"status":         status,
+		"admin_note":     adminNote,
+	}
+	s.logService.LogAction(primitive.ObjectID{}, "ReviewTransaction", "Transaction reviewed", "", metadata)
+
+	return nil
+}
+-e 
+=== ./service/copy_trade_service.go ===
+
+package service
+
+import (
+	"errors"
+	"math"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type CopyTradeService interface {
+	CreateSubscription(followerID, leaderID string, allocatedAmount float64) (*models.CopyTradeSubscription, error)
+	GetSubscription(id string) (*models.CopyTradeSubscription, error)
+	GetSubscriptionsByFollowerID(followerID string) ([]*models.CopyTradeSubscription, error)
+	MirrorTrade(leaderTrade *models.TradeHistory) error
+}
+
+type copyTradeService struct {
+	copyTradeRepo repository.CopyTradeRepository
+	tradeService  TradeService
+	userService   UserService
+	logService    LogService
+}
+
+func NewCopyTradeService(copyTradeRepo repository.CopyTradeRepository, tradeService TradeService, userService UserService, logService LogService) CopyTradeService {
+	return &copyTradeService{
+		copyTradeRepo: copyTradeRepo,
+		tradeService:  tradeService,
+		userService:   userService,
+		logService:    logService,
+	}
+}
+
+func (s *copyTradeService) CreateSubscription(followerID, leaderID string, allocatedAmount float64) (*models.CopyTradeSubscription, error) {
+	if followerID == leaderID {
+		return nil, errors.New("cannot follow yourself")
+	}
+	if allocatedAmount <= 0 {
+		return nil, errors.New("allocated amount must be positive")
+	}
+
+	follower, err := s.userService.GetUser(followerID)
+	if err != nil || follower == nil {
+		return nil, errors.New("follower not found")
+	}
+	leader, err := s.userService.GetUser(leaderID)
+	if err != nil || leader == nil {
+		return nil, errors.New("leader not found")
+	}
+
+	followerBalance, err := s.tradeService.RequestBalance(followerID)
+	if err != nil {
+		return nil, errors.New("failed to fetch follower balance")
+	}
+	if followerBalance < allocatedAmount {
+		return nil, errors.New("insufficient balance")
+	}
+
+	subscription := &models.CopyTradeSubscription{
+		FollowerID:      followerID,
+		LeaderID:        leaderID,
+		AllocatedAmount: allocatedAmount,
+		Status:          "ACTIVE",
+	}
+
+	err = s.copyTradeRepo.SaveSubscription(subscription)
+	if err != nil {
+		return nil, err
+	}
+
+	metadata := map[string]interface{}{
+		"subscription_id":  subscription.ID.Hex(),
+		"follower_id":      followerID,
+		"leader_id":        leaderID,
+		"allocated_amount": allocatedAmount,
+	}
+	s.logService.LogAction(primitive.ObjectID{}, "CreateCopySubscription", "Copy trade subscription created", "", metadata)
+
+	return subscription, nil
+}
+
+func (s *copyTradeService) GetSubscription(id string) (*models.CopyTradeSubscription, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, errors.New("invalid subscription ID")
+	}
+	return s.copyTradeRepo.GetSubscriptionByID(objID)
+}
+
+func (s *copyTradeService) GetSubscriptionsByFollowerID(followerID string) ([]*models.CopyTradeSubscription, error) {
+	return s.copyTradeRepo.GetSubscriptionsByFollowerID(followerID)
+}
+
+func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory) error {
+	subscriptions, err := s.copyTradeRepo.GetActiveSubscriptionsByLeaderID(leaderTrade.UserID.Hex())
+	if err != nil {
+		return err
+	}
+
+	leaderBalance, err := s.tradeService.RequestBalance(leaderTrade.UserID.Hex())
+	if err != nil {
+		return errors.New("failed to fetch leader balance")
+	}
+	if leaderBalance <= 0 {
+		return errors.New("leader balance is zero")
+	}
+
+	volumeRatio := leaderTrade.Volume / leaderBalance
+
+	for _, sub := range subscriptions {
+		followerBalance, err := s.tradeService.RequestBalance(sub.FollowerID)
+		if err != nil {
+			continue
+		}
+
+		followerVolume := math.Min(sub.AllocatedAmount, followerBalance) * volumeRatio
+		followerTrade, err := s.tradeService.PlaceTrade(
+			sub.FollowerID,
+			leaderTrade.SymbolName,
+			leaderTrade.TradeType,
+			leaderTrade.Leverage,
+			followerVolume,
+			leaderTrade.EntryPrice,
+		)
+		if err != nil {
+			continue
+		}
+
+		copyTrade := &models.CopyTrade{
+			SubscriptionID:  sub.ID,
+			LeaderTradeID:   leaderTrade.ID,
+			FollowerTradeID: followerTrade.ID,
+		}
+		err = s.copyTradeRepo.SaveCopyTrade(copyTrade)
+		if err != nil {
+			continue
+		}
+
+		metadata := map[string]interface{}{
+			"copy_trade_id":     copyTrade.ID.Hex(),
+			"subscription_id":   sub.ID.Hex(),
+			"leader_trade_id":   leaderTrade.ID.Hex(),
+			"follower_trade_id": followerTrade.ID.Hex(),
+			"follower_volume":   followerVolume,
+		}
+		s.logService.LogAction(primitive.ObjectID{}, "MirrorTrade", "Trade mirrored for follower", "", metadata)
+	}
+
+	return nil
+}
+-e 
+=== ./service/rule_service.go ===
+
+package service
+
+import (
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type RuleService interface {
+	CreateRule(rule *models.Rule) error
+	GetRule(id string) (*models.Rule, error)
+	GetAllRules() ([]*models.Rule, error)
+	UpdateRule(id string, rule *models.Rule) error
+	DeleteRule(id string) error
+}
+
+type ruleService struct {
+	ruleRepo repository.RuleRepository
+}
+
+func NewRuleService(ruleRepo repository.RuleRepository) RuleService {
+	return &ruleService{ruleRepo: ruleRepo}
+}
+
+func (s *ruleService) CreateRule(rule *models.Rule) error {
+	return s.ruleRepo.SaveRule(rule)
+}
+
+func (s *ruleService) GetRule(id string) (*models.Rule, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, err
+	}
+	return s.ruleRepo.GetRuleByID(objID)
+}
+
+func (s *ruleService) GetAllRules() ([]*models.Rule, error) {
+	return s.ruleRepo.GetAllRules()
+}
+
+func (s *ruleService) UpdateRule(id string, rule *models.Rule) error {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return err
+	}
+	return s.ruleRepo.UpdateRule(objID, rule)
+}
+
+func (s *ruleService) DeleteRule(id string) error {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return err
+	}
+	return s.ruleRepo.DeleteRule(objID)
+}
+-e 
+=== ./service/trade_service.go ===
+
+package service
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type TradeService interface {
+	PlaceTrade(userID, symbolName string, tradeType models.TradeType, leverage int, volume, entryPrice float64) (*models.TradeHistory, error)
+	GetTrade(id string) (*models.TradeHistory, error)
+	GetTradesByUserID(userID string) ([]*models.TradeHistory, error)
+	GetAllTrades() ([]*models.TradeHistory, error)
+	HandleTradeResponse(response TradeResponse) error
+	StartUDPListener() error
+	RequestBalance(userID string) (float64, error)
+}
+
+type tradeService struct {
+	tradeRepo        repository.TradeRepository
+	symbolRepo       repository.SymbolRepository
+	logService       LogService
+	udpConn          *net.UDPConn
+	mt5UDPAddr       *net.UDPAddr
+	listenUDPAddr    *net.UDPAddr
+	responseChan     chan TradeResponse
+	balanceChan      chan BalanceResponse
+	copyTradeService CopyTradeService
+}
+
+type BalanceResponse struct {
+	Type      string  `json:"type"`
+	UserID    string  `json:"user_id"`
+	Balance   float64 `json:"balance"`
+	Error     string  `json:"error,omitempty"`
+	Timestamp int64   `json:"timestamp"`
+}
+
+func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, logService LogService, copyTradeService CopyTradeService, mt5Host string, mt5Port, listenPort int) (TradeService, error) {
+	mt5Addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", mt5Host, mt5Port))
+	if err != nil {
+		return nil, err
+	}
+	listenAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", listenPort))
+	if err != nil {
+		return nil, err
+	}
+
+	return &tradeService{
+		tradeRepo:        tradeRepo,
+		symbolRepo:       symbolRepo,
+		logService:       logService,
+		copyTradeService: copyTradeService,
+		mt5UDPAddr:       mt5Addr,
+		listenUDPAddr:    listenAddr,
+		responseChan:     make(chan TradeResponse, 100),
+		balanceChan:      make(chan BalanceResponse, 100),
+	}, nil
+}
+
+func (s *tradeService) StartUDPListener() error {
+	conn, err := net.ListenUDP("udp", s.listenUDPAddr)
+	if err != nil {
+		return err
+	}
+	s.udpConn = conn
+
+	go func() {
+		defer conn.Close()
+		buf := make([]byte, 4096)
+		for {
+			n, _, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				continue
+			}
+
+			var msg map[string]interface{}
+			if err := json.Unmarshal(buf[:n], &msg); err != nil {
+				continue
+			}
+
+			if msgType, ok := msg["type"].(string); ok {
+				if msgType == "trade_response" {
+					var response TradeResponse
+					if err := json.Unmarshal(buf[:n], &response); err != nil {
+						continue
+					}
+					s.responseChan <- response
+				} else if msgType == "balance_response" {
+					var response BalanceResponse
+					if err := json.Unmarshal(buf[:n], &response); err != nil {
+						continue
+					}
+					s.balanceChan <- response
+				}
+			}
+		}
+	}()
+
+	go func() {
+		for response := range s.responseChan {
+			if err := s.HandleTradeResponse(response); err != nil {
+				log.Printf("Failed to handle trade response: %v", err)
+			}
+		}
+	}()
+
+	go func() {
+		for response := range s.balanceChan {
+			if err := s.handleBalanceResponse(response); err != nil {
+				log.Printf("Failed to handle balance response: %v", err)
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (s *tradeService) PlaceTrade(userID, symbolName string, tradeType models.TradeType, leverage int, volume, entryPrice float64) (*models.TradeHistory, error) {
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, errors.New("invalid user ID")
+	}
+
+	symbols, err := s.symbolRepo.GetAllSymbols()
+	if err != nil {
+		return nil, errors.New("failed to fetch symbols")
+	}
+	var symbol *models.Symbol
+	for _, sym := range symbols {
+		if sym.SymbolName == symbolName {
+			symbol = sym
+			break
+		}
+	}
+	if symbol == nil {
+		return nil, errors.New("symbol not found")
+	}
+
+	if tradeType != models.TradeTypeBuy && tradeType != models.TradeTypeSell {
+		return nil, errors.New("invalid trade type")
+	}
+	if volume < symbol.MinLot || volume > symbol.MaxLot {
+		return nil, errors.New("volume out of allowed range")
+	}
+	if leverage > symbol.Leverage {
+		return nil, errors.New("leverage exceeds symbol limit")
+	}
+
+	trade := &models.TradeHistory{
+		ID:         primitive.NewObjectID(),
+		UserID:     userObjID,
+		SymbolName: symbolName,
+		TradeType:  tradeType,
+		Leverage:   leverage,
+		Volume:     volume,
+		EntryPrice: entryPrice,
+		OpenTime:   time.Now(),
+		Status:     models.TradeStatusPending,
+	}
+
+	err = s.sendTradeToMT5(trade)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.tradeRepo.SaveTrade(trade)
+	if err != nil {
+		return nil, err
+	}
+
+	metadata := map[string]interface{}{
+		"trade_id":    trade.ID.Hex(),
+		"symbol_name": symbolName,
+		"trade_type":  tradeType,
+		"leverage":    leverage,
+		"volume":      volume,
+		"entry_price": entryPrice,
+	}
+	s.logService.LogAction(userObjID, "PlaceTrade", "Trade order placed", "", metadata)
+
+	go func() {
+		if err := s.copyTradeService.MirrorTrade(trade); err != nil {
+			log.Printf("Failed to mirror trade: %v", err)
+		}
+	}()
+
+	return trade, nil
+}
+
+func (s *tradeService) sendTradeToMT5(trade *models.TradeHistory) error {
+	tradeRequest := map[string]interface{}{
+		"trade_id":    trade.ID.Hex(),
+		"user_id":     trade.UserID.Hex(),
+		"symbol":      trade.SymbolName,
+		"trade_type":  trade.TradeType,
+		"leverage":    trade.Leverage,
+		"volume":      trade.Volume,
+		"entry_price": trade.EntryPrice,
+		"timestamp":   trade.OpenTime.Unix(),
+	}
+
+	data, err := json.Marshal(tradeRequest)
+	if err != nil {
+		return err
+	}
+
+	conn, err := net.DialUDP("udp", nil, s.mt5UDPAddr)
+	if err != nil {
+		return errors.New("failed to connect to MT5 UDP")
+	}
+	defer conn.Close()
+
+	_, err = conn.Write(data)
+	if err != nil {
+		return errors.New("failed to send trade request")
+	}
+
+	return nil
+}
+
+func (s *tradeService) HandleTradeResponse(response TradeResponse) error {
+	tradeID, err := primitive.ObjectIDFromHex(response.TradeID)
+	if err != nil {
+		return errors.New("invalid trade ID")
+	}
+
+	trade, err := s.tradeRepo.GetTradeByID(tradeID)
+	if err != nil {
+		return err
+	}
+	if trade == nil {
+		return errors.New("trade not found")
+	}
+
+	if response.Status == "MATCHED" {
+		trade.Status = models.TradeStatusOpen
+		trade.ID, _ = primitive.ObjectIDFromHex(response.MatchedTradeID)
+	} else if response.Status == "PENDING" {
+		trade.Status = models.TradeStatusPending
+	} else {
+		trade.Status = models.TradeStatusClosed
+	}
+
+	err = s.tradeRepo.SaveTrade(trade)
+	if err != nil {
+		return err
+	}
+
+	metadata := map[string]interface{}{
+		"trade_id":         response.TradeID,
+		"status":           response.Status,
+		"matched_trade_id": response.MatchedTradeID,
+	}
+	s.logService.LogAction(trade.UserID, "TradeResponse", "Trade status updated", "", metadata)
+
+	return nil
+}
+
+func (s *tradeService) GetTrade(id string) (*models.TradeHistory, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, err
+	}
+	return s.tradeRepo.GetTradeByID(objID)
+}
+
+func (s *tradeService) GetTradesByUserID(userID string) ([]*models.TradeHistory, error) {
+	objID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.tradeRepo.GetTradesByUserID(objID)
+}
+
+func (s *tradeService) GetAllTrades() ([]*models.TradeHistory, error) {
+	return s.tradeRepo.GetAllTrades()
+}
+
+type TradeResponse struct {
+	TradeID        string `json:"trade_id"`
+	UserID         string `json:"user_id"`
+	Status         string `json:"status"`
+	MatchedTradeID string `json:"matched_trade_id"`
+	Timestamp      int64  `json:"timestamp"`
+}
+
+func (s *tradeService) RequestBalance(userID string) (float64, error) {
+	_, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return 0, errors.New("invalid user ID")
+	}
+
+	balanceRequest := map[string]interface{}{
+		"type":      "balance_request",
+		"user_id":   userID,
+		"timestamp": time.Now().Unix(),
+	}
+
+	data, err := json.Marshal(balanceRequest)
+	if err != nil {
+		return 0, err
+	}
+
+	conn, err := net.DialUDP("udp", nil, s.mt5UDPAddr)
+	if err != nil {
+		return 0, errors.New("failed to connect to MT5 UDP")
+	}
+	defer conn.Close()
+
+	_, err = conn.Write(data)
+	if err != nil {
+		return 0, errors.New("failed to send balance request")
+	}
+
+	select {
+	case response := <-s.balanceChan:
+		if response.UserID != userID {
+			return 0, errors.New("received balance response for wrong user")
+		}
+		if response.Error != "" {
+			return 0, errors.New(response.Error)
+		}
+		return response.Balance, nil
+	case <-time.After(5 * time.Second):
+		return 0, errors.New("timeout waiting for balance response")
+	}
+}
+
+func (s *tradeService) handleBalanceResponse(response BalanceResponse) error {
+	userObjID, err := primitive.ObjectIDFromHex(response.UserID)
+	if err != nil {
+		return errors.New("invalid user ID in balance response")
+	}
+
+	metadata := map[string]interface{}{
+		"user_id": response.UserID,
+		"balance": response.Balance,
+	}
+	s.logService.LogAction(userObjID, "BalanceUpdate", "User balance updated from MT5", "", metadata)
+
+	return nil
+}
+-e 
+=== ./service/price_service.go ===
+
+package service
+
+import (
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+	"github.com/mehrbod2002/fxtrader/internal/ws"
+)
+
+type PriceService interface {
+	ProcessPrice(data *models.PriceData) error
+}
+
+type priceService struct {
+	repo         repository.PriceRepository
+	hub          *ws.Hub
+	alertService AlertService
+}
+
+func NewPriceService(repo repository.PriceRepository, hub *ws.Hub, alertService AlertService) PriceService {
+	return &priceService{
+		repo:         repo,
+		hub:          hub,
+		alertService: alertService,
+	}
+}
+
+func (s *priceService) ProcessPrice(data *models.PriceData) error {
+	if err := s.repo.SavePrice(data); err != nil {
+		return err
+	}
+
+	s.hub.BroadcastPrice(data)
+
+	if err := s.alertService.ProcessPriceForAlerts(data); err != nil {
+		return err
+	}
+
+	return nil
+}
+-e 
+=== ./service/user_service.go ===
+
+package service
+
+// package service
+import (
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type UserService interface {
+	SignupUser(user *models.UserAccount) error
+	GetUser(id string) (*models.UserAccount, error)
+	GetUserByTelegramID(telegramID string) (*models.UserAccount, error)
+	GetAllUsers() ([]*models.UserAccount, error)
+}
+
+type userService struct {
+	userRepo repository.UserRepository
+}
+
+func NewUserService(userRepo repository.UserRepository) UserService {
+	return &userService{userRepo: userRepo}
+}
+
+func (s *userService) SignupUser(user *models.UserAccount) error {
+	if user.ID.IsZero() {
+		user.ID = primitive.NewObjectID()
+	}
+	if user.RegistrationDate == "" {
+		user.RegistrationDate = time.Now().Format(time.RFC3339)
+	}
+	return s.userRepo.SaveUser(user)
+}
+
+func (s *userService) GetUser(id string) (*models.UserAccount, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, err
+	}
+	return s.userRepo.GetUserByID(objID)
+}
+
+func (s *userService) GetUserByTelegramID(telegramID string) (*models.UserAccount, error) {
+	return s.userRepo.GetUserByTelegramID(telegramID)
+}
+
+func (s *userService) GetAllUsers() ([]*models.UserAccount, error) {
+	return s.userRepo.GetAllUsers()
+}
+-e 
+=== ./service/alert_service.go ===
+
+package service
+
+import (
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type AlertService interface {
+	CreateAlert(userID string, alert *models.Alert) error
+	GetAlert(id string) (*models.Alert, error)
+	GetAlertsByUserID(userID string) ([]*models.Alert, error)
+	ProcessPriceForAlerts(price *models.PriceData) error
+	ProcessTimeBasedAlerts() error
+}
+
+type alertService struct {
+	alertRepo  repository.AlertRepository
+	symbolRepo repository.SymbolRepository
+	logService LogService
+	notifyFunc func(userID, message string) error
+}
+
+func NewAlertService(alertRepo repository.AlertRepository, symbolRepo repository.SymbolRepository, logService LogService) AlertService {
+	return &alertService{
+		alertRepo:  alertRepo,
+		symbolRepo: symbolRepo,
+		logService: logService,
+		notifyFunc: func(userID, message string) error { return nil },
+	}
+}
+
+func (s *alertService) CreateAlert(userID string, alert *models.Alert) error {
+	if alert.AlertType != models.AlertTypePrice && alert.AlertType != models.AlertTypeTime {
+		return errors.New("invalid alert type")
+	}
+	if alert.AlertType == models.AlertTypePrice {
+		if alert.Condition.PriceTarget == nil || *alert.Condition.PriceTarget <= 0 {
+			return errors.New("price target required and must be positive")
+		}
+		if alert.Condition.Comparison != "ABOVE" && alert.Condition.Comparison != "BELOW" {
+			return errors.New("comparison must be ABOVE or BELOW")
+		}
+	} else if alert.AlertType == models.AlertTypeTime {
+		if alert.Condition.TriggerTime == nil || alert.Condition.TriggerTime.Before(time.Now()) {
+			return errors.New("trigger time required and must be in the future")
+		}
+	}
+
+	symbols, err := s.symbolRepo.GetAllSymbols()
+	if err != nil {
+		return errors.New("failed to fetch symbols")
+	}
+	var symbolExists bool
+	for _, sym := range symbols {
+		if sym.SymbolName == alert.SymbolName {
+			symbolExists = true
+			break
+		}
+	}
+	if !symbolExists {
+		return errors.New("symbol not found")
+	}
+
+	alert.UserID = userID
+	alert.Status = models.AlertStatusPending
+
+	err = s.alertRepo.SaveAlert(alert)
+	if err != nil {
+		return err
+	}
+
+	metadata := map[string]interface{}{
+		"alert_id":    alert.ID.Hex(),
+		"symbol_name": alert.SymbolName,
+		"alert_type":  alert.AlertType,
+	}
+	s.logService.LogAction(primitive.ObjectID{}, "CreateAlert", "Alert created", "", metadata)
+
+	return nil
+}
+
+func (s *alertService) GetAlert(id string) (*models.Alert, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, errors.New("invalid alert ID")
+	}
+	return s.alertRepo.GetAlertByID(objID)
+}
+
+func (s *alertService) GetAlertsByUserID(userID string) ([]*models.Alert, error) {
+	return s.alertRepo.GetAlertsByUserID(userID)
+}
+
+func (s *alertService) ProcessPriceForAlerts(price *models.PriceData) error {
+	alerts, err := s.alertRepo.GetPendingAlerts()
+	if err != nil {
+		return err
+	}
+
+	for _, alert := range alerts {
+		if alert.SymbolName != price.Symbol || alert.AlertType != models.AlertTypePrice {
+			continue
+		}
+
+		shouldTrigger := false
+		if alert.Condition.Comparison == "ABOVE" && price.Ask >= *alert.Condition.PriceTarget {
+			shouldTrigger = true
+		} else if alert.Condition.Comparison == "BELOW" && price.Bid <= *alert.Condition.PriceTarget {
+			shouldTrigger = true
+		}
+
+		if shouldTrigger {
+			now := time.Now()
+			alert.Status = models.AlertStatusTriggered
+			alert.TriggeredAt = &now
+			err = s.alertRepo.UpdateAlert(alert.ID, alert)
+			if err != nil {
+				continue
+			}
+
+			message := "Alert triggered for " + alert.SymbolName + " at price " + fmt.Sprintf("%f", *alert.Condition.PriceTarget)
+			s.notifyFunc(alert.UserID, message)
+
+			metadata := map[string]interface{}{
+				"alert_id":     alert.ID.Hex(),
+				"symbol_name":  alert.SymbolName,
+				"price_target": *alert.Condition.PriceTarget,
+			}
+			s.logService.LogAction(primitive.ObjectID{}, "AlertTriggered", "Price alert triggered", "", metadata)
+		}
+	}
+
+	return nil
+}
+
+func (s *alertService) ProcessTimeBasedAlerts() error {
+	alerts, err := s.alertRepo.GetPendingAlerts()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	for _, alert := range alerts {
+		if alert.AlertType != models.AlertTypeTime || alert.Condition.TriggerTime == nil {
+			continue
+		}
+
+		if now.After(*alert.Condition.TriggerTime) {
+			alert.Status = models.AlertStatusTriggered
+			alert.TriggeredAt = &now
+			err = s.alertRepo.UpdateAlert(alert.ID, alert)
+			if err != nil {
+				continue
+			}
+
+			message := "Time-based alert triggered for " + alert.SymbolName
+			s.notifyFunc(alert.UserID, message)
+
+			metadata := map[string]interface{}{
+				"alert_id":    alert.ID.Hex(),
+				"symbol_name": alert.SymbolName,
+			}
+			s.logService.LogAction(primitive.ObjectID{}, "AlertTriggered", "Time alert triggered", "", metadata)
+		}
+	}
+
+	return nil
+}
+-e 
+=== ./service/log_service.go ===
+
+package service
+
+import (
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type LogService interface {
+	LogAction(userID primitive.ObjectID, action, description, ipAddress string, metadata map[string]interface{}) error
+	GetAllLogs() ([]*models.LogEntry, error)
+	GetLogsByUserID(userID string) ([]*models.LogEntry, error)
+}
+
+type logService struct {
+	logRepo repository.LogRepository
+}
+
+func NewLogService(logRepo repository.LogRepository) LogService {
+	return &logService{logRepo: logRepo}
+}
+
+func (s *logService) LogAction(userID primitive.ObjectID, action, description, ipAddress string, metadata map[string]interface{}) error {
+	logEntry := &models.LogEntry{
+		UserID:      userID,
+		Action:      action,
+		Description: description,
+		IPAddress:   ipAddress,
+		Metadata:    metadata,
+	}
+	return s.logRepo.SaveLog(logEntry)
+}
+
+func (s *logService) GetAllLogs() ([]*models.LogEntry, error) {
+	return s.logRepo.GetAllLogs()
+}
+
+func (s *logService) GetLogsByUserID(userID string) ([]*models.LogEntry, error) {
+	objID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.logRepo.GetLogsByUserID(objID)
+}
+-e 
+=== ./service/symbo_service.go ===
+
+package service
+
+import (
+	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+type SymbolService interface {
+	CreateSymbol(symbol *models.Symbol) error
+	GetSymbol(id string) (*models.Symbol, error)
+	GetAllSymbols() ([]*models.Symbol, error)
+	UpdateSymbol(id string, symbol *models.Symbol) error
+	DeleteSymbol(id string) error
+}
+
+type symbolService struct {
+	symbolRepo repository.SymbolRepository
+}
+
+func NewSymbolService(symbolRepo repository.SymbolRepository) SymbolService {
+	return &symbolService{symbolRepo: symbolRepo}
+}
+
+func (s *symbolService) CreateSymbol(symbol *models.Symbol) error {
+	return s.symbolRepo.SaveSymbol(symbol)
+}
+
+func (s *symbolService) GetSymbol(id string) (*models.Symbol, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, err
+	}
+	return s.symbolRepo.GetSymbolByID(objID)
+}
+
+func (s *symbolService) GetAllSymbols() ([]*models.Symbol, error) {
+	return s.symbolRepo.GetAllSymbols()
+}
+
+func (s *symbolService) UpdateSymbol(id string, symbol *models.Symbol) error {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return err
+	}
+	return s.symbolRepo.UpdateSymbol(objID, symbol)
+}
+
+func (s *symbolService) DeleteSymbol(id string) error {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return err
+	}
+	return s.symbolRepo.DeleteSymbol(objID)
+}
+-e 
+=== ./ws/handler.go ===
+
+package ws
+
+import (
+	"encoding/json"
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"github.com/gin-gonic/gin"
+	"github.com/gorilla/websocket"
+)
+
+const (
+	writeWait = 10 * time.Second
+
+	pongWait = 60 * time.Second
+
+	pingPeriod = (pongWait * 9) / 10
+
+	maxMessageSize = 512
+)
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
+}
+
+type WebSocketHandler struct {
+	hub *Hub
+}
+
+func NewWebSocketHandler(hub *Hub) *WebSocketHandler {
+	return &WebSocketHandler{hub: hub}
+}
+
+func (h *WebSocketHandler) HandleConnection(c *gin.Context) {
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+
+	client := h.hub.RegisterClient(conn)
+
+	go h.readPump(client)
+	go h.writePump(client)
+}
+
+func (h *WebSocketHandler) readPump(client *models.Client) {
+	defer func() {
+		h.hub.UnregisterClient(client)
+	}()
+
+	client.Conn.SetReadLimit(maxMessageSize)
+	client.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	client.Conn.SetPongHandler(func(string) error {
+		client.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
+
+	for {
+		_, message, err := client.Conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("error: %v", err)
+			}
+			break
+		}
+
+		var socketMsg models.SocketMessage
+		if err := json.Unmarshal(message, &socketMsg); err != nil {
+			response := models.ErrorResponse{Error: "Invalid message format"}
+			client.Conn.WriteJSON(response)
+			continue
+		}
+
+		switch socketMsg.Action {
+		case "subscribe":
+			client.Subscribe(socketMsg.Symbol)
+
+			var symbols []string
+			for symbol := range client.Symbols {
+				symbols = append(symbols, symbol)
+			}
+
+			response := models.SubscriptionResponse{
+				Status:  "success",
+				Message: "Subscribed to " + socketMsg.Symbol,
+				Symbols: symbols,
+			}
+			client.Conn.WriteJSON(response)
+
+		case "unsubscribe":
+			client.Unsubscribe(socketMsg.Symbol)
+
+			var symbols []string
+			for symbol := range client.Symbols {
+				symbols = append(symbols, symbol)
+			}
+
+			response := models.SubscriptionResponse{
+				Status:  "success",
+				Message: "Unsubscribed from " + socketMsg.Symbol,
+				Symbols: symbols,
+			}
+			client.Conn.WriteJSON(response)
+
+		default:
+			response := models.ErrorResponse{Error: "Unknown action"}
+			client.Conn.WriteJSON(response)
+		}
+	}
+}
+
+func (h *WebSocketHandler) writePump(client *models.Client) {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		client.Conn.Close()
+	}()
+
+	for {
+		select {
+		case price, ok := <-client.Send:
+			client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+
+			err := client.Conn.WriteJSON(price)
+			if err != nil {
+				return
+			}
+
+		case <-ticker.C:
+			client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
+}
+-e 
+=== ./ws/hub.go ===
+
+package ws
+
+import (
+	"log"
+	"sync"
+
+	"github.com/mehrbod2002/fxtrader/internal/models"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+)
+
+type Hub struct {
+	clients map[string]*models.Client
+
+	register chan *models.Client
+
+	unregister chan *models.Client
+
+	broadcast chan *models.PriceData
+
+	mu sync.RWMutex
+}
+
+func NewHub() *Hub {
+	return &Hub{
+		clients:    make(map[string]*models.Client),
+		register:   make(chan *models.Client),
+		unregister: make(chan *models.Client),
+		broadcast:  make(chan *models.PriceData),
+	}
+}
+
+func (h *Hub) Run() {
+	for {
+		select {
+		case client := <-h.register:
+			h.mu.Lock()
+			h.clients[client.ID] = client
+			h.mu.Unlock()
+
+		case client := <-h.unregister:
+			h.mu.Lock()
+			if _, ok := h.clients[client.ID]; ok {
+				delete(h.clients, client.ID)
+				client.Close()
+			}
+			h.mu.Unlock()
+
+		case price := <-h.broadcast:
+			h.mu.RLock()
+			for _, client := range h.clients {
+				if client.IsSubscribed(price.Symbol) {
+					select {
+					case client.Send <- price:
+					default:
+						log.Printf("Client %s buffer full, skipping message", client.ID)
+					}
+				}
+			}
+			h.mu.RUnlock()
+		}
+	}
+}
+
+func (h *Hub) RegisterClient(conn *websocket.Conn) *models.Client {
+	clientID := uuid.New().String()
+	client := models.NewClient(clientID, conn)
+	h.register <- client
+	return client
+}
+
+func (h *Hub) UnregisterClient(client *models.Client) {
+	h.unregister <- client
+}
+
+func (h *Hub) BroadcastPrice(data *models.PriceData) {
+	h.broadcast <- data
+}
+
+func (h *Hub) GetClientCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients)
+}

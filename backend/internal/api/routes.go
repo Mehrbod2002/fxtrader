@@ -4,12 +4,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mehrbod2002/fxtrader/internal/config"
+	"github.com/mehrbod2002/fxtrader/internal/middleware"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
 	"github.com/mehrbod2002/fxtrader/internal/service"
-
-	"github.com/mehrbod2002/fxtrader/internal/middleware"
-
-	"github.com/mehrbod2002/fxtrader/internal/config"
 	"github.com/mehrbod2002/fxtrader/internal/ws"
 
 	"github.com/gin-contrib/cors"
@@ -18,7 +16,7 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceService, adminRepo repository.AdminRepository, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, tradeService service.TradeService, transactionService service.TransactionService, wsHandler *ws.WebSocketHandler, baseURL string) {
+func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertService, copyTradeService service.CopyTradeService, priceService service.PriceService, adminRepo repository.AdminRepository, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, tradeService service.TradeService, transactionService service.TransactionService, wsHandler *ws.WebSocketHandler, baseURL string) {
 	// r.SetTrustedProxies([]string{})
 
 	r.Use(cors.New(cors.Config{
@@ -37,6 +35,8 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceSe
 	tradeHandler := NewTradeHandler(tradeService, logService)
 	transactionHandler := NewTransactionHandler(transactionService, logService)
 	adminHandler := NewAdminHandler(adminRepo, cfg)
+	alertHandler := NewAlertHandler(alertService, logService)
+	copyTradeHandler := NewCopyTradeHandler(copyTradeService, logService)
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -80,6 +80,12 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, priceService service.PriceSe
 			user.GET("/trades/:id", tradeHandler.GetTrade)
 			user.POST("/transactions", transactionHandler.CreateTransaction)
 			user.GET("/transactions", transactionHandler.GetUserTransactions)
+			user.POST("/alerts", alertHandler.CreateAlert)
+			user.GET("/alerts", alertHandler.GetUserAlerts)
+			user.GET("/alerts/:id", alertHandler.GetAlert)
+			user.POST("/copy-trades", copyTradeHandler.CreateSubscription)
+			user.GET("/copy-trades", copyTradeHandler.GetUserSubscriptions)
+			user.GET("/copy-trades/:id", copyTradeHandler.GetSubscription)
 		}
 
 		admin := v1.Group("/admin").Use(middleware.AdminAuthMiddleware(cfg))

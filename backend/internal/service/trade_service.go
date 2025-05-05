@@ -25,14 +25,15 @@ type TradeService interface {
 }
 
 type tradeService struct {
-	tradeRepo     repository.TradeRepository
-	symbolRepo    repository.SymbolRepository
-	logService    LogService
-	udpConn       *net.UDPConn
-	mt5UDPAddr    *net.UDPAddr
-	listenUDPAddr *net.UDPAddr
-	responseChan  chan TradeResponse
-	balanceChan   chan BalanceResponse
+	tradeRepo        repository.TradeRepository
+	symbolRepo       repository.SymbolRepository
+	logService       LogService
+	udpConn          *net.UDPConn
+	mt5UDPAddr       *net.UDPAddr
+	listenUDPAddr    *net.UDPAddr
+	responseChan     chan TradeResponse
+	balanceChan      chan BalanceResponse
+	copyTradeService CopyTradeService
 }
 
 type BalanceResponse struct {
@@ -43,7 +44,7 @@ type BalanceResponse struct {
 	Timestamp int64   `json:"timestamp"`
 }
 
-func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, logService LogService, mt5Host string, mt5Port, listenPort int) (TradeService, error) {
+func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, logService LogService, copyTradeService CopyTradeService, mt5Host string, mt5Port, listenPort int) (TradeService, error) {
 	mt5Addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", mt5Host, mt5Port))
 	if err != nil {
 		return nil, err
@@ -54,13 +55,14 @@ func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository
 	}
 
 	return &tradeService{
-		tradeRepo:     tradeRepo,
-		symbolRepo:    symbolRepo,
-		logService:    logService,
-		mt5UDPAddr:    mt5Addr,
-		listenUDPAddr: listenAddr,
-		responseChan:  make(chan TradeResponse, 100),
-		balanceChan:   make(chan BalanceResponse, 100),
+		tradeRepo:        tradeRepo,
+		symbolRepo:       symbolRepo,
+		logService:       logService,
+		copyTradeService: copyTradeService,
+		mt5UDPAddr:       mt5Addr,
+		listenUDPAddr:    listenAddr,
+		responseChan:     make(chan TradeResponse, 100),
+		balanceChan:      make(chan BalanceResponse, 100),
 	}, nil
 }
 
@@ -184,6 +186,12 @@ func (s *tradeService) PlaceTrade(userID, symbolName string, tradeType models.Tr
 		"entry_price": entryPrice,
 	}
 	s.logService.LogAction(userObjID, "PlaceTrade", "Trade order placed", "", metadata)
+
+	go func() {
+		if err := s.copyTradeService.MirrorTrade(trade); err != nil {
+			log.Printf("Failed to mirror trade: %v", err)
+		}
+	}()
 
 	return trade, nil
 }

@@ -11,14 +11,16 @@ type PriceService interface {
 }
 
 type priceService struct {
-	repo repository.PriceRepository
-	hub  *ws.Hub
+	repo         repository.PriceRepository
+	hub          *ws.Hub
+	alertService AlertService
 }
 
-func NewPriceService(repo repository.PriceRepository, hub *ws.Hub) PriceService {
+func NewPriceService(repo repository.PriceRepository, hub *ws.Hub, alertService AlertService) PriceService {
 	return &priceService{
-		repo: repo,
-		hub:  hub,
+		repo:         repo,
+		hub:          hub,
+		alertService: alertService,
 	}
 }
 
@@ -28,6 +30,10 @@ func (s *priceService) ProcessPrice(data *models.PriceData) error {
 	}
 
 	s.hub.BroadcastPrice(data)
+
+	if err := s.alertService.ProcessPriceForAlerts(data); err != nil {
+		return err
+	}
 
 	return nil
 }

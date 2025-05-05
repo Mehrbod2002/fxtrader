@@ -52,28 +52,44 @@ func main() {
 	tradeRepo := repository.NewTradeRepository(client, "fxtrader", "trades_fxtrader")
 	transactionRepo := repository.NewTransactionRepository(client, "fxtrader", "transactions_fxtrader")
 	adminRepo := repository.NewAdminRepository(client, "fxtrader", "admins_fxtrader")
+	alertRepo := repository.NewAlertRepository(client, "fxtrader", "alerts")
+	copyTradeRepo := repository.NewCopyTradeRepository(client, "fxtrader", "copy_trades")
 
 	if err := config.EnsureAdminUser(adminRepo, cfg.AdminUser, cfg.AdminPass); err != nil {
 		log.Fatalf("Failed to ensure admin user: %v", err)
 	}
 
 	wsHandler := ws.NewWebSocketHandler(hub)
-	priceService := service.NewPriceService(priceRepo, hub)
+	logService := service.NewLogService(logRepo)
 	userService := service.NewUserService(userRepo)
 	symbolService := service.NewSymbolService(symbolRepo)
-	logService := service.NewLogService(logRepo)
 	ruleService := service.NewRuleService(ruleRepo)
-	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, logService, cfg.MT5Host, cfg.MT5Port, cfg.ListenPort)
+	transactionService := service.NewTransactionService(transactionRepo, logService)
+	alertService := service.NewAlertService(alertRepo, symbolRepo, logService)
+	copyTradeService := service.NewCopyTradeService(copyTradeRepo, nil, userService, logService)
+	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, logService, copyTradeService, cfg.MT5Host, cfg.MT5Port, cfg.ListenPort)
 	if err != nil {
 		log.Fatalf("Failed to initialize trade service: %v", err)
 	}
-	transactionService := service.NewTransactionService(transactionRepo, logService)
+	priceService := service.NewPriceService(priceRepo, hub, alertService)
+
+	copyTradeService.SetTradeService(tradeService)
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := alertService.ProcessTimeBasedAlerts(); err != nil {
+				log.Printf("Error processing time-based alerts: %v", err)
+			}
+		}
+	}()
 
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 
-	api.SetupRoutes(r, cfg, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, cfg.BaseURL)
+	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, cfg.BaseURL)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
 	log.Printf("Starting server on http://%s", addr)
