@@ -41,7 +41,6 @@ func NewWebSocketHandler(hub *Hub) *WebSocketHandler {
 func (h *WebSocketHandler) HandleConnection(c *gin.Context) {
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		log.Printf("Error upgrading connection: %v", err)
 		return
 	}
 

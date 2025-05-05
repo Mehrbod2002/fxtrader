@@ -22,7 +22,7 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	_ = godotenv.Load()
+	_ = godotenv.Load("../../.env")
 
 	portStr := os.Getenv("PORT")
 	if portStr == "" {

@@ -2,7 +2,6 @@ package config
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
@@ -19,7 +18,6 @@ func EnsureAdminUser(adminRepo repository.AdminRepository, adminUser, adminPass 
 
 	user, err := adminRepo.GetAdminByUsername(adminUser)
 	if err == nil && user != nil {
-		log.Println("Admin user already exists")
 		return nil
 	}
 
@@ -41,6 +39,5 @@ func EnsureAdminUser(adminRepo repository.AdminRepository, adminUser, adminPass 
 		return err
 	}
 
-	log.Println("Default admin user created")
 	return nil
 }
