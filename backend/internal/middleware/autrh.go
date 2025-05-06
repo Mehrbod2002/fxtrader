@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/mehrbod2002/fxtrader/internal/config"
 
 	"github.com/gin-gonic/gin"
