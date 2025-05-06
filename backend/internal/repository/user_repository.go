@@ -18,6 +18,7 @@ type UserRepository interface {
 	GetUserByID(id primitive.ObjectID) (*models.UserAccount, error)
 	GetUserByTelegramID(telegramID string) (*models.UserAccount, error)
 	GetAllUsers() ([]*models.UserAccount, error)
+	UpdateUser(user *models.UserAccount) error
 }
 
 type MongoUserRepository struct {
@@ -27,6 +28,15 @@ type MongoUserRepository struct {
 func NewUserRepository(client *mongo.Client, dbName, collectionName string) UserRepository {
 	collection := client.Database(dbName).Collection(collectionName)
 	return &MongoUserRepository{collection: collection}
+}
+
+func (r *MongoUserRepository) UpdateUser(user *models.UserAccount) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	update := bson.M{"$set": bson.M{"is_active": user.IsActive}}
+	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": user.ID}, update)
+	return err
 }
 
 func (r *MongoUserRepository) SaveUser(user *models.UserAccount) error {

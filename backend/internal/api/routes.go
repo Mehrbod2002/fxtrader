@@ -38,7 +38,7 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertSe
 	ruleHandler := NewRuleHandler(ruleService)
 	tradeHandler := NewTradeHandler(tradeService, logService)
 	transactionHandler := NewTransactionHandler(transactionService, logService)
-	adminHandler := NewAdminHandler(adminRepo, cfg)
+	adminHandler := NewAdminHandler(adminRepo, cfg, userService)
 	alertHandler := NewAlertHandler(alertService, logService)
 	copyTradeHandler := NewCopyTradeHandler(copyTradeService, logService)
 
@@ -113,6 +113,7 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertSe
 			admin.GET("/transactions/user/:user_id", transactionHandler.GetTransactionsByUser)
 			admin.GET("/transactions/:id", transactionHandler.GetTransactionByID)
 			admin.PUT("/transactions/:id", transactionHandler.ReviewTransaction)
+			admin.PUT("/users/activation", adminHandler.UpdateUserActivation)
 		}
 	}
 

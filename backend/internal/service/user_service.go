@@ -15,6 +15,7 @@ type UserService interface {
 	GetUser(id string) (*models.UserAccount, error)
 	GetUserByTelegramID(telegramID string) (*models.UserAccount, error)
 	GetAllUsers() ([]*models.UserAccount, error)
+	UpdateUser(user *models.UserAccount) error
 }
 
 type userService struct {
@@ -25,14 +26,18 @@ func NewUserService(userRepo repository.UserRepository) UserService {
 	return &userService{userRepo: userRepo}
 }
 
+func (s *userService) UpdateUser(user *models.UserAccount) error {
+	return s.userRepo.UpdateUser(user)
+}
+
 func (s *userService) SignupUser(user *models.UserAccount) error {
 	if user.ID.IsZero() {
 		user.ID = primitive.NewObjectID()
-	}
-	if user.RegistrationDate == "" {
 		user.RegistrationDate = time.Now().Format(time.RFC3339)
+		user.IsActive = false
+		return s.userRepo.SaveUser(user)
 	}
-	return s.userRepo.SaveUser(user)
+	return s.userRepo.UpdateUser(user)
 }
 
 func (s *userService) GetUser(id string) (*models.UserAccount, error) {

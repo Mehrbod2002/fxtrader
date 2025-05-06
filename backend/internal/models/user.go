@@ -22,4 +22,6 @@ type UserAccount struct {
 	RegistrationDate string             `json:"registration_date" bson:"registration_date"`
 	WalletAddress    string             `json:"wallet_address" bson:"wallet_address"`
 	TelegramID       string             `json:"telegram_id" bson:"telegram_id"`
+	BirthDay         string             `json:"birthday" bson:"birthday"`
+	IsActive         bool               `json:"is_active" bson:"is_active"`
 }

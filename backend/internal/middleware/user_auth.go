@@ -32,6 +32,11 @@ func UserAuthMiddleware(userService service.UserService) gin.HandlerFunc {
 			return
 		}
 
+		if !user.IsActive {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "User account is not activated"})
+			return
+		}
+
 		c.Set("user_id", user.ID.Hex())
 		c.Next()
 	}
