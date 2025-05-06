@@ -17,21 +17,18 @@ func UserAuthMiddleware(userService service.UserService) gin.HandlerFunc {
 		return
 		telegramID := c.GetHeader("X-Telegram-ID")
 		if telegramID == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "X-Telegram-ID header required"})
-			c.Abort()
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "X-Telegram-ID header required"})
 			return
 		}
 
 		user, err := userService.GetUserByTelegramID(telegramID)
 		if err != nil || user == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid Telegram ID"})
-			c.Abort()
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid Telegram ID"})
 			return
 		}
 
 		if user.AccountType == "admin" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Admin accounts cannot use user routes"})
-			c.Abort()
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Admin accounts cannot use user routes"})
 			return
 		}
 
