@@ -143,7 +143,6 @@ void SendTradeResponse(string trade_id, string user_id, string status, string ma
    }
 }
 
-// Clean up
 void OnDeinit(const int reason) {
    if (socket_handle != INVALID_HANDLE) {
       UDPClose(socket_handle);
