@@ -9,6 +9,39 @@ definitions:
     - password
     - username
     type: object
+  api.AlertRequest:
+    properties:
+      alert_type:
+        allOf:
+        - $ref: '#/definitions/models.AlertType'
+        enum:
+        - PRICE
+        - TIME
+      condition:
+        $ref: '#/definitions/models.AlertCondition'
+      notification_method:
+        enum:
+        - SMS
+        - EMAIL
+        type: string
+      symbol_name:
+        type: string
+    required:
+    - alert_type
+    - condition
+    - notification_method
+    - symbol_name
+    type: object
+  api.CopyTradeRequest:
+    properties:
+      allocated_amount:
+        type: number
+      leader_id:
+        type: string
+    required:
+    - allocated_amount
+    - leader_id
+    type: object
   api.LoginRequest:
     properties:
       telegram_id:
@@ -32,15 +65,6 @@ definitions:
         type: integer
       user_count:
         type: integer
-    type: object
-  api.SignupRequest:
-    properties:
-      telegram_id:
-        type: string
-      username:
-        type: string
-    required:
-    - telegram_id
     type: object
   api.SymbolUsage:
     properties:
@@ -107,6 +131,87 @@ definitions:
         - REJECTED
     required:
     - status
+    type: object
+  api.UserActivationRequest:
+    properties:
+      is_active:
+        type: boolean
+      user_id:
+        type: string
+    required:
+    - is_active
+    - user_id
+    type: object
+  models.ActivceStatus:
+    enum:
+    - active
+    - inactive
+    type: string
+    x-enum-varnames:
+    - Active
+    - Inactive
+  models.Alert:
+    properties:
+      _id:
+        type: string
+      alert_type:
+        $ref: '#/definitions/models.AlertType'
+      condition:
+        $ref: '#/definitions/models.AlertCondition'
+      created_at:
+        type: string
+      notification_method:
+        type: string
+      status:
+        $ref: '#/definitions/models.AlertStatus'
+      symbol_name:
+        type: string
+      triggered_at:
+        type: string
+      user_id:
+        type: string
+    type: object
+  models.AlertCondition:
+    properties:
+      comparison:
+        type: string
+      price_target:
+        type: number
+      trigger_time:
+        type: string
+    type: object
+  models.AlertStatus:
+    enum:
+    - PENDING
+    - TRIGGERED
+    - EXPIRED
+    type: string
+    x-enum-varnames:
+    - AlertStatusPending
+    - AlertStatusTriggered
+    - AlertStatusExpired
+  models.AlertType:
+    enum:
+    - PRICE
+    - TIME
+    type: string
+    x-enum-varnames:
+    - AlertTypePrice
+    - AlertTypeTime
+  models.CopyTradeSubscription:
+    properties:
+      _id:
+        type: string
+      allocated_amount:
+        type: number
+      created_at:
+        type: string
+      follower_id:
+        type: string
+      leader_id:
+        type: string
+      status:
+        $ref: '#/definitions/models.ActivceStatus'
     type: object
   models.LogEntry:
     properties:
@@ -292,6 +397,8 @@ definitions:
         type: string
       balance:
         type: number
+      birthday:
+        type: string
       bonus:
         type: number
       card_number:
@@ -300,6 +407,8 @@ definitions:
         type: string
       full_name:
         type: string
+      is_active:
+        type: boolean
       leverage:
         type: integer
       national_id:
@@ -307,6 +416,8 @@ definitions:
       phone_number:
         type: string
       registration_date:
+        type: string
+      residence:
         type: string
       telegram_id:
         type: string
@@ -884,6 +995,161 @@ paths:
       summary: Get transactions by user ID
       tags:
       - Transactions
+  /admin/users/activation:
+    put:
+      consumes:
+      - application/json
+      description: Allows for an admin
+      parameters:
+      - description: User activation data
+        in: body
+        name: activation
+        required: true
+        schema:
+          $ref: '#/definitions/api.UserActivationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: User status updated
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or user ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: User not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to update user status
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Activate or deactivate a user
+      tags:
+      - Admin
+  /alerts:
+    get:
+      description: Retrieves all alerts for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.Alert'
+            type: array
+        "400":
+          description: Invalid user ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to retrieve alerts
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get user alerts
+      tags:
+      - Alerts
+    post:
+      consumes:
+      - application/json
+      description: Allows a user to create a price or time-based alert
+      parameters:
+      - description: Alert data
+        in: body
+        name: alert
+        required: true
+        schema:
+          $ref: '#/definitions/api.AlertRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Alert created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to create alert
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a new alert
+      tags:
+      - Alerts
+  /alerts/{id}:
+    get:
+      description: Retrieves details of a specific alert
+      parameters:
+      - description: Alert ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.Alert'
+        "400":
+          description: Invalid alert ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Alert not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get alert by ID
+      tags:
+      - Alerts
   /api/trade-response:
     post:
       consumes:
@@ -1117,6 +1383,111 @@ paths:
       summary: Get transaction by ID
       tags:
       - Transactions
+  /copy-trades:
+    get:
+      description: Retrieves all copy trade subscriptions for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.CopyTradeSubscription'
+            type: array
+        "400":
+          description: Invalid user ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to retrieve subscriptions
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get user copy trade subscriptions
+      tags:
+      - CopyTrading
+    post:
+      consumes:
+      - application/json
+      description: Allows a user to follow a trader and allocate funds for copy trading
+      parameters:
+      - description: Subscription data
+        in: body
+        name: subscription
+        required: true
+        schema:
+          $ref: '#/definitions/api.CopyTradeRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Subscription created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to create subscription
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Create a copy trade subscription
+      tags:
+      - CopyTrading
+  /copy-trades/{id}:
+    get:
+      description: Retrieves details of a specific copy trade subscription
+      parameters:
+      - description: Subscription ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.CopyTradeSubscription'
+        "400":
+          description: Invalid subscription ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Subscription not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get copy trade subscription by ID
+      tags:
+      - CopyTrading
   /prices:
     post:
       consumes:
@@ -1402,7 +1773,7 @@ paths:
         name: user
         required: true
         schema:
-          $ref: '#/definitions/api.SignupRequest'
+          $ref: '#/definitions/models.UserAccount'
       produces:
       - application/json
       responses:

@@ -31,7 +31,7 @@ func NewUserHandler(userService service.UserService, logService service.LogServi
 // @Tags Users
 // @Accept json
 // @Produce json
-// @Param user body SignupRequest true "User account details"
+// @Param user body models.UserAccount true "User account details"
 // @Success 201 {object} map[string]interface{} "User created"
 // @Failure 400 {object} map[string]string "Invalid JSON"
 // @Failure 409 {object} map[string]string "User already exists"

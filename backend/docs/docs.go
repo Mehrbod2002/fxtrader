@@ -873,6 +873,249 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/users/activation": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Allows for an admin",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Activate or deactivate a user",
+                "parameters": [
+                    {
+                        "description": "User activation data",
+                        "name": "activation",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.UserActivationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "User status updated",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or user ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "User not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to update user status",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/alerts": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves all alerts for the authenticated user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Alerts"
+                ],
+                "summary": "Get user alerts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.Alert"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid user ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to retrieve alerts",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Allows a user to create a price or time-based alert",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Alerts"
+                ],
+                "summary": "Create a new alert",
+                "parameters": [
+                    {
+                        "description": "Alert data",
+                        "name": "alert",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.AlertRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Alert created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to create alert",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/alerts/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves details of a specific alert",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Alerts"
+                ],
+                "summary": "Get alert by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Alert ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.Alert"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid alert ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Alert not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/trade-response": {
             "post": {
                 "description": "Processes trade response from MT5 EA",
@@ -1226,6 +1469,171 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Transaction not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/copy-trades": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves all copy trade subscriptions for the authenticated user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CopyTrading"
+                ],
+                "summary": "Get user copy trade subscriptions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.CopyTradeSubscription"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid user ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to retrieve subscriptions",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Allows a user to follow a trader and allocate funds for copy trading",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CopyTrading"
+                ],
+                "summary": "Create a copy trade subscription",
+                "parameters": [
+                    {
+                        "description": "Subscription data",
+                        "name": "subscription",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CopyTradeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Subscription created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to create subscription",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/copy-trades/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves details of a specific copy trade subscription",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CopyTrading"
+                ],
+                "summary": "Get copy trade subscription by ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscription ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/models.CopyTradeSubscription"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid subscription ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Subscription not found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1629,7 +2037,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/api.SignupRequest"
+                            "$ref": "#/definitions/models.UserAccount"
                         }
                     }
                 ],
@@ -1735,6 +2143,56 @@ const docTemplate = `{
                 }
             }
         },
+        "api.AlertRequest": {
+            "type": "object",
+            "required": [
+                "alert_type",
+                "condition",
+                "notification_method",
+                "symbol_name"
+            ],
+            "properties": {
+                "alert_type": {
+                    "enum": [
+                        "PRICE",
+                        "TIME"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/models.AlertType"
+                        }
+                    ]
+                },
+                "condition": {
+                    "$ref": "#/definitions/models.AlertCondition"
+                },
+                "notification_method": {
+                    "type": "string",
+                    "enum": [
+                        "SMS",
+                        "EMAIL"
+                    ]
+                },
+                "symbol_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.CopyTradeRequest": {
+            "type": "object",
+            "required": [
+                "allocated_amount",
+                "leader_id"
+            ],
+            "properties": {
+                "allocated_amount": {
+                    "type": "number"
+                },
+                "leader_id": {
+                    "type": "string"
+                }
+            }
+        },
         "api.LoginRequest": {
             "type": "object",
             "required": [
@@ -1769,20 +2227,6 @@ const docTemplate = `{
                 },
                 "user_count": {
                     "type": "integer"
-                }
-            }
-        },
-        "api.SignupRequest": {
-            "type": "object",
-            "required": [
-                "telegram_id"
-            ],
-            "properties": {
-                "telegram_id": {
-                    "type": "string"
-                },
-                "username": {
-                    "type": "string"
                 }
             }
         },
@@ -1889,6 +2333,125 @@ const docTemplate = `{
                             "$ref": "#/definitions/models.TransactionStatus"
                         }
                     ]
+                }
+            }
+        },
+        "api.UserActivationRequest": {
+            "type": "object",
+            "required": [
+                "is_active",
+                "user_id"
+            ],
+            "properties": {
+                "is_active": {
+                    "type": "boolean"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.ActivceStatus": {
+            "type": "string",
+            "enum": [
+                "active",
+                "inactive"
+            ],
+            "x-enum-varnames": [
+                "Active",
+                "Inactive"
+            ]
+        },
+        "models.Alert": {
+            "type": "object",
+            "properties": {
+                "_id": {
+                    "type": "string"
+                },
+                "alert_type": {
+                    "$ref": "#/definitions/models.AlertType"
+                },
+                "condition": {
+                    "$ref": "#/definitions/models.AlertCondition"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "notification_method": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/models.AlertStatus"
+                },
+                "symbol_name": {
+                    "type": "string"
+                },
+                "triggered_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.AlertCondition": {
+            "type": "object",
+            "properties": {
+                "comparison": {
+                    "type": "string"
+                },
+                "price_target": {
+                    "type": "number"
+                },
+                "trigger_time": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.AlertStatus": {
+            "type": "string",
+            "enum": [
+                "PENDING",
+                "TRIGGERED",
+                "EXPIRED"
+            ],
+            "x-enum-varnames": [
+                "AlertStatusPending",
+                "AlertStatusTriggered",
+                "AlertStatusExpired"
+            ]
+        },
+        "models.AlertType": {
+            "type": "string",
+            "enum": [
+                "PRICE",
+                "TIME"
+            ],
+            "x-enum-varnames": [
+                "AlertTypePrice",
+                "AlertTypeTime"
+            ]
+        },
+        "models.CopyTradeSubscription": {
+            "type": "object",
+            "properties": {
+                "_id": {
+                    "type": "string"
+                },
+                "allocated_amount": {
+                    "type": "number"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "follower_id": {
+                    "type": "string"
+                },
+                "leader_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/models.ActivceStatus"
                 }
             }
         },
@@ -2164,6 +2727,9 @@ const docTemplate = `{
                 "balance": {
                     "type": "number"
                 },
+                "birthday": {
+                    "type": "string"
+                },
                 "bonus": {
                     "type": "number"
                 },
@@ -2176,6 +2742,9 @@ const docTemplate = `{
                 "full_name": {
                     "type": "string"
                 },
+                "is_active": {
+                    "type": "boolean"
+                },
                 "leverage": {
                     "type": "integer"
                 },
@@ -2186,6 +2755,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "registration_date": {
+                    "type": "string"
+                },
+                "residence": {
                     "type": "string"
                 },
                 "telegram_id": {

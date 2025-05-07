@@ -1,6 +1,7 @@
 package api
 
 import (
+	"embed"
 	"os"
 	"path/filepath"
 
@@ -15,6 +16,9 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
+
+//go:emded: ../../docs/swagger.json
+var embdedJS embed.FS
 
 func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertService, copyTradeService service.CopyTradeService, priceService service.PriceService, adminRepo repository.AdminRepository, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, tradeService service.TradeService, transactionService service.TransactionService, wsHandler *ws.WebSocketHandler, baseURL string) {
 	// r.SetTrustedProxies([]string{})
@@ -47,7 +51,7 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertSe
 		return
 	}
 
-	staticPath := filepath.Join(wd, "..", "..", "static")
+	staticPath := filepath.Join(wd, "static")
 	r.Static("/static", staticPath)
 
 	r.GET("/chart", func(c *gin.Context) {
@@ -59,7 +63,7 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertSe
 		c.File(symbolFile)
 	})
 
-	wdRoot := filepath.Join(wd, "..", "..")
+	wdRoot := filepath.Join(wd)
 	swaggerJSONPath := filepath.Join(wdRoot, "docs", "swagger.json")
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, ginSwagger.URL("/docs/swagger.json")))
 	r.GET("/docs/swagger.json", func(c *gin.Context) {

@@ -9,5 +9,5 @@ FROM alpine:latest
 WORKDIR /root/
 COPY --from=builder /app/fxtrader .
 COPY static/ ./static/
-EXPOSE 8080
+EXPOSE 7000
 CMD ["./fxtrader"]
