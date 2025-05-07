@@ -55,7 +55,6 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 	}
 
 	user := &models.UserAccount{
-		ID:               primitive.NewObjectID(),
 		FullName:         req.FullName,
 		PhoneNumber:      req.PhoneNumber,
 		TelegramID:       req.TelegramID,
