@@ -1,0 +1,29 @@
+version: "3.8"
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: backend
+    ports:
+      - "8080:8080"
+    networks:
+      - fxtrader-network
+    environment:
+      - APP_ENV=production
+    depends_on:
+      - mongodb
+
+  mongodb:
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=secret
+    networks:
+      - fxtrader-network
+
+networks:
+  fxtrader-network:
+    driver: bridge

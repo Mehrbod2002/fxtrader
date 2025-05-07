@@ -45,7 +45,7 @@ func Load() (*Config, error) {
 
 	mongoURI := os.Getenv("MONGO_URI")
 	if mongoURI == "" {
-		mongoURI = "mongodb://127.0.0.1:27017"
+		mongoURI = "mongodb://admin:secret@mongodb:27017/?authSource=admin"
 	}
 
 	adminUser := os.Getenv("ADMIN_USER")
