@@ -1,7 +1,6 @@
 package api
 
 import (
-	"embed"
 	"os"
 	"path/filepath"
 
@@ -16,9 +15,6 @@ import (
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
-
-//go:emded: ../../docs/swagger.json
-var embdedJS embed.FS
 
 func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertService, copyTradeService service.CopyTradeService, priceService service.PriceService, adminRepo repository.AdminRepository, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, tradeService service.TradeService, transactionService service.TransactionService, wsHandler *ws.WebSocketHandler, baseURL string) {
 	// r.SetTrustedProxies([]string{})
