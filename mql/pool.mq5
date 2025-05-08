@@ -33,18 +33,14 @@ int OnInit() {
    return(INIT_SUCCEEDED);
 }
 
-// Main tick function
 void OnTick() {
-   // Check for incoming UDP packets
    string json_data = UDPReceive(socket_handle);
    if (json_data != "") {
       ProcessTradeRequest(json_data);
    }
-   // Match trades in the pool
    MatchTrades();
 }
 
-// Process incoming trade request
 void ProcessTradeRequest(string json_data) {
    CJAVal json;
    if (!json.Deserialize(json_data)) {
@@ -52,7 +48,6 @@ void ProcessTradeRequest(string json_data) {
       return;
    }
 
-   // Expect a single trade request
    PoolTrade new_trade;
    new_trade.trade_id = json["trade_id"].ToStr();
    new_trade.user_id = json["user_id"].ToStr();

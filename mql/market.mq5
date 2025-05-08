@@ -1,5 +1,5 @@
 #property copyright "Amirhossein Akhlaghpour"
-#property link      "https://www.yourwebsite.com"
+#property link      "https://www.crypex.org"
 #property version   "1.00"
 
 input string BackendURL = "http://144.76.169.71:7000/api/v1/prices";

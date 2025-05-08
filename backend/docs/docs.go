@@ -2533,7 +2533,10 @@ const docTemplate = `{
                 "category": {
                     "type": "string"
                 },
-                "commission": {
+                "commission_deposit": {
+                    "type": "number"
+                },
+                "commission_withdrawalz": {
                     "type": "number"
                 },
                 "created_at": {
