@@ -14,21 +14,14 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type TradeResponse struct {
-	TradeID        string `json:"trade_id"`
-	UserID         string `json:"user_id"`
-	Status         string `json:"status"`
-	MatchedTradeID string `json:"matched_trade_id"`
-	Timestamp      int64  `json:"timestamp"`
-}
-
 type TradeService interface {
 	PlaceTrade(userID, symbol string, tradeType models.TradeType, orderType string, leverage int, volume, entryPrice, stopLoss, takeProfit float64, expiration *time.Time) (*models.TradeHistory, error)
 	GetTrade(id string) (*models.TradeHistory, error)
 	GetTradesByUserID(userID string) ([]*models.TradeHistory, error)
 	GetAllTrades() ([]*models.TradeHistory, error)
 	HandleTradeResponse(response TradeResponse) error
-	StartTCPListener() error
+	HandleTradeRequest(request map[string]interface{}) error
+	HandleBalanceRequest(request map[string]interface{}) error
 	RequestBalance(userID string) (float64, error)
 }
 
@@ -37,7 +30,6 @@ type tradeService struct {
 	symbolRepo       repository.SymbolRepository
 	logService       LogService
 	mt5TCPAddr       *net.TCPAddr
-	listenTCPAddr    *net.TCPAddr
 	responseChan     chan TradeResponse
 	balanceChan      chan BalanceResponse
 	copyTradeService CopyTradeService
@@ -51,12 +43,8 @@ type BalanceResponse struct {
 	Timestamp int64   `json:"timestamp"`
 }
 
-func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, logService LogService, copyTradeService CopyTradeService, mt5Host string, mt5Port, listenPort int) (TradeService, error) {
+func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, logService LogService, copyTradeService CopyTradeService, mt5Host string, mt5Port int) (TradeService, error) {
 	mt5Addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", mt5Host, mt5Port))
-	if err != nil {
-		return nil, err
-	}
-	listenAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", listenPort))
 	if err != nil {
 		return nil, err
 	}
@@ -66,153 +54,116 @@ func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository
 		symbolRepo:       symbolRepo,
 		logService:       logService,
 		mt5TCPAddr:       mt5Addr,
-		listenTCPAddr:    listenAddr,
 		responseChan:     make(chan TradeResponse, 100),
 		balanceChan:      make(chan BalanceResponse, 100),
 		copyTradeService: copyTradeService,
 	}, nil
 }
 
-func (s *tradeService) StartTCPListener() error {
-	listener, err := net.ListenTCP("tcp", s.listenTCPAddr)
-	if err != nil {
-		return fmt.Errorf("failed to start TCP listener: %v", err)
+func (s *tradeService) HandleTradeRequest(request map[string]interface{}) error {
+	_, ok := request["trade_id"].(string)
+	if !ok {
+		return errors.New("missing or invalid trade_id")
+	}
+	userID, ok := request["user_id"].(string)
+	if !ok {
+		return errors.New("missing or invalid user_id")
+	}
+	symbol, ok := request["symbol"].(string)
+	if !ok {
+		return errors.New("missing or invalid symbol")
+	}
+	tradeTypeStr, ok := request["trade_type"].(string)
+	if !ok {
+		return errors.New("missing or invalid trade_type")
+	}
+	orderType, ok := request["order_type"].(string)
+	if !ok {
+		return errors.New("missing or invalid order_type")
+	}
+	leverage, ok := request["leverage"].(float64)
+	if !ok {
+		return errors.New("missing or invalid leverage")
+	}
+	volume, ok := request["volume"].(float64)
+	if !ok {
+		return errors.New("missing or invalid volume")
+	}
+	entryPrice, ok := request["entry_price"].(float64)
+	if !ok {
+		return errors.New("missing or invalid entry_price")
+	}
+	stopLoss, ok := request["stop_loss"].(float64)
+	if !ok {
+		return errors.New("missing or invalid stop_loss")
+	}
+	takeProfit, ok := request["take_profit"].(float64)
+	if !ok {
+		return errors.New("missing or invalid take_profit")
+	}
+	var expiration *time.Time
+	if exp, ok := request["expiration"].(float64); ok && exp > 0 {
+		t := time.Unix(int64(exp), 0)
+		expiration = &t
 	}
 
-	log.Printf("TradeService TCP server listening on %s", s.listenTCPAddr.String())
-
-	go func() {
-		defer listener.Close()
-		for {
-			conn, err := listener.AcceptTCP()
-			if err != nil {
-				log.Printf("Failed to accept TCP connection: %v", err)
-				continue
-			}
-			go s.handleTCPConnection(conn)
-		}
-	}()
-
-	go func() {
-		for response := range s.responseChan {
-			if err := s.HandleTradeResponse(response); err != nil {
-				log.Printf("Failed to handle trade response: %v", err)
-			}
-		}
-	}()
-
-	go func() {
-		for response := range s.balanceChan {
-			if err := s.handleBalanceResponse(response); err != nil {
-				log.Printf("Failed to handle balance response: %v", err)
-			}
-		}
-	}()
-
-	return nil
+	tradeType := models.TradeType(tradeTypeStr)
+	_, err := s.PlaceTrade(userID, symbol, tradeType, orderType, int(leverage), volume, entryPrice, stopLoss, takeProfit, expiration)
+	return err
 }
 
-func (s *tradeService) handleTCPConnection(conn *net.TCPConn) {
+func (s *tradeService) HandleBalanceRequest(request map[string]interface{}) error {
+	userID, ok := request["user_id"].(string)
+	if !ok {
+		return errors.New("missing or invalid user_id")
+	}
+
+	_, err := s.RequestBalance(userID)
+	return err
+}
+
+func (s *tradeService) sendToMT5(data []byte) error {
+	conn, err := net.DialTCP("tcp", nil, s.mt5TCPAddr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to MT5 TCP server: %v", err)
+	}
 	defer conn.Close()
+
+	_, err = conn.Write(data)
+	if err != nil {
+		return fmt.Errorf("failed to send data to MT5: %v", err)
+	}
+
 	buf := make([]byte, 4096)
 	n, err := conn.Read(buf)
 	if err != nil {
-		log.Printf("Failed to read from TCP connection: %v", err)
-		return
+		return fmt.Errorf("failed to read MT5 response: %v", err)
 	}
 
 	var msg map[string]interface{}
 	if err := json.Unmarshal(buf[:n], &msg); err != nil {
-		log.Printf("Failed to unmarshal TCP message: %v", err)
-		return
+		return fmt.Errorf("failed to unmarshal MT5 response: %v", err)
 	}
 
-	if msgType, ok := msg["type"].(string); ok {
-		if msgType == "trade_request" {
-			var tradeRequest map[string]interface{}
-			if err := json.Unmarshal(buf[:n], &tradeRequest); err != nil {
-				log.Printf("Failed to unmarshal trade request: %v", err)
-				return
-			}
-			if err := s.sendTradeToMT5(tradeRequest); err != nil {
-				log.Printf("Failed to forward trade request to MT5: %v", err)
-			}
-		} else if msgType == "balance_request" {
-			var balanceRequest BalanceResponse
-			if err := json.Unmarshal(buf[:n], &balanceRequest); err != nil {
-				log.Printf("Failed to unmarshal balance request: %v", err)
-				return
-			}
-			if err := s.sendBalanceRequestToMT5(balanceRequest); err != nil {
-				log.Printf("Failed to forward balance request to MT5: %v", err)
-			}
+	msgType, ok := msg["type"].(string)
+	if !ok {
+		return errors.New("missing or invalid response type")
+	}
+
+	if msgType == "trade_response" {
+		var response TradeResponse
+		if err := json.Unmarshal(buf[:n], &response); err != nil {
+			return fmt.Errorf("failed to unmarshal trade response: %v", err)
 		}
-	}
-}
-
-func (s *tradeService) sendTradeToMT5(tradeRequest map[string]interface{}) error {
-	conn, err := net.DialTCP("tcp", nil, s.mt5TCPAddr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to MT5 TCP server: %v", err)
-	}
-	defer conn.Close()
-
-	data, err := json.Marshal(tradeRequest)
-	if err != nil {
-		return fmt.Errorf("failed to marshal trade request: %v", err)
+		s.responseChan <- response
+	} else if msgType == "balance_response" {
+		var response BalanceResponse
+		if err := json.Unmarshal(buf[:n], &response); err != nil {
+			return fmt.Errorf("failed to unmarshal balance response: %v", err)
+		}
+		s.balanceChan <- response
 	}
 
-	_, err = conn.Write(data)
-	if err != nil {
-		return fmt.Errorf("failed to send trade request to MT5: %v", err)
-	}
-
-	// Read response from MT5
-	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return fmt.Errorf("failed to read MT5 response: %v", err)
-	}
-
-	var response TradeResponse
-	if err := json.Unmarshal(buf[:n], &response); err != nil {
-		return fmt.Errorf("failed to unmarshal MT5 trade response: %v", err)
-	}
-
-	s.responseChan <- response
-	return nil
-}
-
-func (s *tradeService) sendBalanceRequestToMT5(balanceRequest BalanceResponse) error {
-	conn, err := net.DialTCP("tcp", nil, s.mt5TCPAddr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to MT5 TCP server: %v", err)
-	}
-	defer conn.Close()
-
-	data, err := json.Marshal(balanceRequest)
-	if err != nil {
-		return fmt.Errorf("failed to marshal balance request: %v", err)
-	}
-
-	_, err = conn.Write(data)
-	if err != nil {
-		return fmt.Errorf("failed to send balance request to MT5: %v", err)
-	}
-
-	// Read response from MT5
-	buf := make([]byte, 4096)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return fmt.Errorf("failed to read MT5 response: %v", err)
-	}
-
-	var response BalanceResponse
-	if err := json.Unmarshal(buf[:n], &response); err != nil {
-		return fmt.Errorf("failed to unmarshal MT5 balance response: %v", err)
-	}
-
-	s.balanceChan <- response
 	return nil
 }
 
@@ -311,7 +262,12 @@ func (s *tradeService) PlaceTrade(userID, symbolName string, tradeType models.Tr
 		tradeRequest["expiration"] = trade.Expiration.Unix()
 	}
 
-	if err := s.sendTradeToMT5(tradeRequest); err != nil {
+	data, err := json.Marshal(tradeRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.sendToMT5(data); err != nil {
 		return nil, err
 	}
 
@@ -413,11 +369,18 @@ func (s *tradeService) RequestBalance(userID string) (float64, error) {
 		return 0, errors.New("invalid user ID")
 	}
 
-	if err := s.sendBalanceRequestToMT5(BalanceResponse{
-		Type:      "balance_request",
-		UserID:    userID,
-		Timestamp: time.Now().Unix(),
-	}); err != nil {
+	balanceRequest := map[string]interface{}{
+		"type":      "balance_request",
+		"user_id":   userID,
+		"timestamp": time.Now().Unix(),
+	}
+
+	data, err := json.Marshal(balanceRequest)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := s.sendToMT5(data); err != nil {
 		return 0, fmt.Errorf("failed to send balance request: %v", err)
 	}
 
@@ -448,4 +411,12 @@ func (s *tradeService) handleBalanceResponse(response BalanceResponse) error {
 	s.logService.LogAction(userObjID, "BalanceUpdate", "User balance updated from MT5", "", metadata)
 
 	return nil
+}
+
+type TradeResponse struct {
+	TradeID        string `json:"trade_id"`
+	UserID         string `json:"user_id"`
+	Status         string `json:"status"`
+	MatchedTradeID string `json:"matched_trade_id"`
+	Timestamp      int64  `json:"timestamp"`
 }

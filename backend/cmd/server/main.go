@@ -11,6 +11,7 @@ import (
 	"github.com/mehrbod2002/fxtrader/internal/middleware"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
 	"github.com/mehrbod2002/fxtrader/internal/service"
+	"github.com/mehrbod2002/fxtrader/internal/tcp"
 	"github.com/mehrbod2002/fxtrader/internal/ws"
 
 	"github.com/gin-gonic/gin"
@@ -67,13 +68,25 @@ func main() {
 	transactionService := service.NewTransactionService(transactionRepo, logService)
 	alertService := service.NewAlertService(alertRepo, symbolRepo, logService)
 	copyTradeService := service.NewCopyTradeService(copyTradeRepo, nil, userService, logService)
-	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, logService, copyTradeService, cfg.MT5Host, cfg.MT5Port, cfg.ListenPort)
+	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, logService, copyTradeService, cfg.MT5Host, cfg.MT5Port)
 	if err != nil {
 		log.Fatalf("Failed to initialize trade service: %v", err)
 	}
 	priceService := service.NewPriceService(priceRepo, hub, alertService)
 
 	copyTradeService.SetTradeService(tradeService)
+
+	tcpServer, err := tcp.NewTCPServer(cfg.ListenPort)
+	if err != nil {
+		log.Fatalf("Failed to initialize TCP server: %v", err)
+	}
+
+	tcpServer.RegisterHandler("trade_request", tradeService.HandleTradeRequest)
+	tcpServer.RegisterHandler("balance_request", tradeService.HandleBalanceRequest)
+
+	if err := tcpServer.Start(); err != nil {
+		log.Fatalf("Failed to start TCP server: %v", err)
+	}
 
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
