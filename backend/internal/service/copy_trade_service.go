@@ -123,11 +123,15 @@ func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory) error {
 		followerVolume := math.Min(sub.AllocatedAmount, followerBalance) * volumeRatio
 		followerTrade, err := s.tradeService.PlaceTrade(
 			sub.FollowerID,
-			leaderTrade.SymbolName,
+			leaderTrade.Symbol,
 			leaderTrade.TradeType,
+			leaderTrade.OrderType,
 			leaderTrade.Leverage,
 			followerVolume,
 			leaderTrade.EntryPrice,
+			leaderTrade.StopLoss,
+			leaderTrade.TakeProfit,
+			leaderTrade.Expiration,
 		)
 		if err != nil {
 			continue

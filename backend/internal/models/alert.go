@@ -35,6 +35,7 @@ type Alert struct {
 
 type AlertCondition struct {
 	PriceTarget *float64   `json:"price_target,omitempty" bson:"price_target,omitempty"`
-	Comparison  string     `json:"comparison,omitempty" bson:"comparison,omitempty"`
+	SL          *float64   `json:"sl,omitempty" bson:"sl,omitempty"`
+	TP          *float64   `json:"tp,omitempty" bson:"tp,omitempty"`
 	TriggerTime *time.Time `json:"trigger_time,omitempty" bson:"trigger_time,omitempty"`
 }

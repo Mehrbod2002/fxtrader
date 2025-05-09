@@ -27,14 +27,16 @@
     <script type="text/javascript">
         const urlParams = new URLSearchParams(window.location.search);
         const symbol = urlParams.get('symbol') || 'EURUSD';
+        const theme = urlParams.get("theme") || urlParams.get("Theme") || "light";
 
         new TradingView.widget({
             width: "100%",
             height: "100%",
             symbol: symbol,
+            theme: theme.toLowerCase() === 'dark' ? 'dark' : 'light',
+            toolbar_bg: theme.toLowerCase() === 'dark' ? '#2a2e39' : '#f1f3f6',
             interval: "1H",
             timezone: "Etc/UTC",
-            theme: "light",
             style: "1",
             locale: "en",
             toolbar_bg: "#f1f3f6",

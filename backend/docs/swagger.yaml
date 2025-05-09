@@ -77,10 +77,27 @@ definitions:
     properties:
       entry_price:
         type: number
+      expiration:
+        type: string
       leverage:
         type: integer
+      order_type:
+        enum:
+        - MARKET
+        - LIMIT
+        - BUY_STOP
+        - SELL_STOP
+        - BUY_LIMIT
+        - SELL_LIMIT
+        type: string
+      stop_loss:
+        minimum: 0
+        type: number
       symbol_name:
         type: string
+      take_profit:
+        minimum: 0
+        type: number
       trade_type:
         allOf:
         - $ref: '#/definitions/models.TradeType'
@@ -90,8 +107,8 @@ definitions:
       volume:
         type: number
     required:
-    - entry_price
     - leverage
+    - order_type
     - symbol_name
     - trade_type
     - volume
@@ -173,9 +190,11 @@ definitions:
     type: object
   models.AlertCondition:
     properties:
-      comparison:
-        type: string
       price_target:
+        type: number
+      sl:
+        type: number
+      tp:
         type: number
       trigger_time:
         type: string
@@ -267,7 +286,7 @@ definitions:
         type: string
       commission_deposit:
         type: number
-      commission_withdrawalz:
+      commission_withdrawal:
         type: number
       created_at:
         type: string
@@ -296,41 +315,37 @@ definitions:
     type: object
   models.TradeHistory:
     properties:
-      _id:
+      closeTime:
         type: string
-      close_price:
+      entryPrice:
         type: number
-      close_time:
+      expiration:
         type: string
-      entry_price:
-        type: number
+      id:
+        type: string
       leverage:
         type: integer
-      open_time:
+      matchedTradeID:
         type: string
-      profit_loss:
-        type: number
+      openTime:
+        type: string
+      orderType:
+        type: string
       status:
-        $ref: '#/definitions/models.TradeStatus'
-      symbol_name:
         type: string
-      trade_type:
+      stopLoss:
+        type: number
+      symbol:
+        type: string
+      takeProfit:
+        type: number
+      tradeType:
         $ref: '#/definitions/models.TradeType'
-      user_id:
+      userID:
         type: string
       volume:
         type: number
     type: object
-  models.TradeStatus:
-    enum:
-    - OPEN
-    - CLOSED
-    - PENDING
-    type: string
-    x-enum-varnames:
-    - TradeStatusOpen
-    - TradeStatusClosed
-    - TradeStatusPending
   models.TradeType:
     enum:
     - BUY

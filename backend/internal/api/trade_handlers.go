@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/mehrbod2002/fxtrader/internal/service"
 
@@ -39,8 +41,19 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 		return
 	}
 
+	if req.OrderType == "MARKET" && req.EntryPrice > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "EntryPrice not allowed for MARKET orders"})
+		return
+	}
+	if strings.Contains(req.OrderType, "LIMIT") || strings.Contains(req.OrderType, "STOP") {
+		if req.EntryPrice <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "EntryPrice required for LIMIT/STOP orders"})
+			return
+		}
+	}
+
 	userID := c.GetString("user_id")
-	trade, err := h.tradeService.PlaceTrade(userID, req.SymbolName, req.TradeType, req.Leverage, req.Volume, req.EntryPrice)
+	trade, err := h.tradeService.PlaceTrade(userID, req.SymbolName, req.TradeType, req.OrderType, req.Leverage, req.Volume, req.EntryPrice, req.StopLoss, req.TakeProfit, req.Expiration)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -51,6 +64,7 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 		"trade_id":   trade.ID.Hex(),
 		"symbol":     req.SymbolName,
 		"trade_type": req.TradeType,
+		"order_type": req.OrderType,
 	}
 	h.logService.LogAction(trade.UserID, "PlaceTrade", "Trade order placed", c.ClientIP(), metadata)
 
@@ -182,7 +196,11 @@ func (h *TradeHandler) GetAllTrades(c *gin.Context) {
 type TradeRequest struct {
 	SymbolName string           `json:"symbol_name" binding:"required"`
 	TradeType  models.TradeType `json:"trade_type" binding:"required,oneof=BUY SELL"`
+	OrderType  string           `json:"order_type" binding:"required,oneof=MARKET LIMIT BUY_STOP SELL_STOP BUY_LIMIT SELL_LIMIT"`
 	Leverage   int              `json:"leverage" binding:"required,gt=0"`
 	Volume     float64          `json:"volume" binding:"required,gt=0"`
-	EntryPrice float64          `json:"entry_price" binding:"required,gt=0"`
+	EntryPrice float64          `json:"entry_price" binding:"omitempty,gt=0"`
+	StopLoss   float64          `json:"stop_loss" binding:"omitempty,gte=0"`
+	TakeProfit float64          `json:"take_profit" binding:"omitempty,gte=0"`
+	Expiration *time.Time       `json:"expiration" binding:"omitempty"`
 }

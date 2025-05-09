@@ -68,13 +68,12 @@ func (h *OverviewHandler) GetOverview(c *gin.Context) {
 	pendingTrades := 0
 	symbolCounts := make(map[string]int)
 	for _, trade := range trades {
-		if trade.Status == models.TradeStatusPending {
+		if trade.Status == string(models.TradeStatusPending) {
 			pendingTrades++
 		}
-		symbolCounts[trade.SymbolName]++
+		symbolCounts[trade.Symbol]++
 	}
 
-	// Get transaction counts
 	transactions, err := h.transactionService.GetAllTransactions()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve transaction data"})

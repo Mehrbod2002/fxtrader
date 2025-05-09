@@ -6,6 +6,24 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+type TradeHistory struct {
+	ID             primitive.ObjectID `bson:"_id"`
+	UserID         primitive.ObjectID `bson:"user_id"`
+	Symbol         string             `bson:"symbol"`
+	TradeType      TradeType          `bson:"trade_type"`
+	OrderType      string             `bson:"order_type"`
+	Leverage       int                `bson:"leverage"`
+	Volume         float64            `bson:"volume"`
+	EntryPrice     float64            `bson:"entry_price"`
+	StopLoss       float64            `bson:"stop_loss"`
+	TakeProfit     float64            `bson:"take_profit"`
+	OpenTime       time.Time          `bson:"open_time"`
+	CloseTime      *time.Time         `bson:"close_time,omitempty"`
+	Status         string             `bson:"status"`
+	MatchedTradeID string             `bson:"matched_trade_id,omitempty"`
+	Expiration     *time.Time         `bson:"expiration,omitempty"`
+}
+
 type TradeType string
 
 const (
@@ -16,22 +34,7 @@ const (
 type TradeStatus string
 
 const (
+	TradeStatusPending TradeStatus = "PENDING"
 	TradeStatusOpen    TradeStatus = "OPEN"
 	TradeStatusClosed  TradeStatus = "CLOSED"
-	TradeStatusPending TradeStatus = "PENDING"
 )
-
-type TradeHistory struct {
-	ID         primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	UserID     primitive.ObjectID `json:"user_id" bson:"user_id"`
-	SymbolName string             `json:"symbol_name" bson:"symbol_name"`
-	TradeType  TradeType          `json:"trade_type" bson:"trade_type"`
-	Leverage   int                `json:"leverage" bson:"leverage"`
-	Volume     float64            `json:"volume" bson:"volume"`
-	EntryPrice float64            `json:"entry_price" bson:"entry_price"`
-	ClosePrice float64            `json:"close_price,omitempty" bson:"close_price,omitempty"`
-	Status     TradeStatus        `json:"status" bson:"status"`
-	ProfitLoss float64            `json:"profit_loss,omitempty" bson:"profit_loss,omitempty"`
-	OpenTime   time.Time          `json:"open_time" bson:"open_time"`
-	CloseTime  *time.Time         `json:"close_time,omitempty" bson:"close_time,omitempty"`
-}

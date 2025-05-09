@@ -31,9 +31,25 @@ func (r *MongoTradeRepository) SaveTrade(trade *models.TradeHistory) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	trade.ID = primitive.NewObjectID()
-	trade.OpenTime = time.Now()
-	_, err := r.collection.InsertOne(ctx, trade)
+	if trade.ID.IsZero() {
+		trade.ID = primitive.NewObjectID()
+		trade.OpenTime = time.Now()
+		_, err := r.collection.InsertOne(ctx, trade)
+		return err
+	}
+
+	filter := bson.M{"_id": trade.ID}
+	update := bson.M{
+		"$set": bson.M{
+			"status":           trade.Status,
+			"matched_trade_id": trade.MatchedTradeID,
+			"close_time":       trade.CloseTime,
+			"stop_loss":        trade.StopLoss,
+			"take_profit":      trade.TakeProfit,
+			"expiration":       trade.Expiration,
+		},
+	}
+	_, err := r.collection.UpdateOne(ctx, filter, update)
 	return err
 }
 
@@ -61,6 +77,14 @@ func (r *MongoTradeRepository) GetTradesByUserID(userID primitive.ObjectID) ([]*
 	defer cursor.Close(ctx)
 	if err := cursor.All(ctx, &trades); err != nil {
 		return nil, err
+	}
+
+	now := time.Now()
+	for _, trade := range trades {
+		if trade.Expiration != nil && trade.Expiration.Before(now) && trade.Status == "PENDING" {
+			trade.Status = "EXPIRED"
+			r.collection.UpdateOne(ctx, bson.M{"_id": trade.ID}, bson.M{"$set": bson.M{"status": "EXPIRED"}})
+		}
 	}
 	return trades, nil
 }

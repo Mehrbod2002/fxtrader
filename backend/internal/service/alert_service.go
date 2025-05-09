@@ -43,7 +43,7 @@ func (s *alertService) CreateAlert(userID string, alert *models.Alert) error {
 		if alert.Condition.PriceTarget == nil || *alert.Condition.PriceTarget <= 0 {
 			return errors.New("price target required and must be positive")
 		}
-		if alert.Condition.Comparison != "ABOVE" && alert.Condition.Comparison != "BELOW" {
+		if alert.Condition.SL == nil && alert.Condition.TP == nil {
 			return errors.New("comparison must be ABOVE or BELOW")
 		}
 	} else if alert.AlertType == models.AlertTypeTime {
@@ -109,9 +109,11 @@ func (s *alertService) ProcessPriceForAlerts(price *models.PriceData) error {
 		}
 
 		shouldTrigger := false
-		if alert.Condition.Comparison == "ABOVE" && price.Ask >= *alert.Condition.PriceTarget {
+		if price.Ask <= *alert.Condition.SL && price.Ask >= *alert.Condition.PriceTarget {
 			shouldTrigger = true
-		} else if alert.Condition.Comparison == "BELOW" && price.Bid <= *alert.Condition.PriceTarget {
+		}
+
+		if price.Bid >= *alert.Condition.TP && price.Bid <= *alert.Condition.PriceTarget {
 			shouldTrigger = true
 		}
 

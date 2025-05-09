@@ -19,9 +19,14 @@ services:
     environment:
       - MONGO_INITDB_ROOT_USERNAME=admin
       - MONGO_INITDB_ROOT_PASSWORD=secret
+    volumes:
+      - mongodb_data:/data/db
     networks:
       - fxtrader-network
 
 networks:
   fxtrader-network:
     driver: bridge
+
+volumes:
+  mongodb_data:

@@ -2244,8 +2244,8 @@ const docTemplate = `{
         "api.TradeRequest": {
             "type": "object",
             "required": [
-                "entry_price",
                 "leverage",
+                "order_type",
                 "symbol_name",
                 "trade_type",
                 "volume"
@@ -2254,11 +2254,33 @@ const docTemplate = `{
                 "entry_price": {
                     "type": "number"
                 },
+                "expiration": {
+                    "type": "string"
+                },
                 "leverage": {
                     "type": "integer"
                 },
+                "order_type": {
+                    "type": "string",
+                    "enum": [
+                        "MARKET",
+                        "LIMIT",
+                        "BUY_STOP",
+                        "SELL_STOP",
+                        "BUY_LIMIT",
+                        "SELL_LIMIT"
+                    ]
+                },
+                "stop_loss": {
+                    "type": "number",
+                    "minimum": 0
+                },
                 "symbol_name": {
                     "type": "string"
+                },
+                "take_profit": {
+                    "type": "number",
+                    "minimum": 0
                 },
                 "trade_type": {
                     "enum": [
@@ -2397,10 +2419,13 @@ const docTemplate = `{
         "models.AlertCondition": {
             "type": "object",
             "properties": {
-                "comparison": {
-                    "type": "string"
-                },
                 "price_target": {
+                    "type": "number"
+                },
+                "sl": {
+                    "type": "number"
+                },
+                "tp": {
                     "type": "number"
                 },
                 "trigger_time": {
@@ -2536,7 +2561,7 @@ const docTemplate = `{
                 "commission_deposit": {
                     "type": "number"
                 },
-                "commission_withdrawalz": {
+                "commission_withdrawal": {
                     "type": "number"
                 },
                 "created_at": {
@@ -2580,56 +2605,52 @@ const docTemplate = `{
         "models.TradeHistory": {
             "type": "object",
             "properties": {
-                "_id": {
+                "closeTime": {
                     "type": "string"
                 },
-                "close_price": {
+                "entryPrice": {
                     "type": "number"
                 },
-                "close_time": {
+                "expiration": {
                     "type": "string"
                 },
-                "entry_price": {
-                    "type": "number"
+                "id": {
+                    "type": "string"
                 },
                 "leverage": {
                     "type": "integer"
                 },
-                "open_time": {
+                "matchedTradeID": {
                     "type": "string"
                 },
-                "profit_loss": {
-                    "type": "number"
+                "openTime": {
+                    "type": "string"
+                },
+                "orderType": {
+                    "type": "string"
                 },
                 "status": {
-                    "$ref": "#/definitions/models.TradeStatus"
-                },
-                "symbol_name": {
                     "type": "string"
                 },
-                "trade_type": {
+                "stopLoss": {
+                    "type": "number"
+                },
+                "symbol": {
+                    "type": "string"
+                },
+                "takeProfit": {
+                    "type": "number"
+                },
+                "tradeType": {
                     "$ref": "#/definitions/models.TradeType"
                 },
-                "user_id": {
+                "userID": {
                     "type": "string"
                 },
                 "volume": {
                     "type": "number"
                 }
             }
-        },
-        "models.TradeStatus": {
-            "type": "string",
-            "enum": [
-                "OPEN",
-                "CLOSED",
-                "PENDING"
-            ],
-            "x-enum-varnames": [
-                "TradeStatusOpen",
-                "TradeStatusClosed",
-                "TradeStatusPending"
-            ]
         },
         "models.TradeType": {
             "type": "string",

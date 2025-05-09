@@ -25,7 +25,6 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	fmt.Println(cfg.MongoURI)
 	client, err := mongo.Connect(context.Background(), options.Client().ApplyURI(cfg.MongoURI))
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
