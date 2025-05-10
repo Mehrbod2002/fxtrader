@@ -12,6 +12,8 @@ import (
 	"github.com/mehrbod2002/fxtrader/internal/models"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
 
+	"slices"
+
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -62,7 +64,6 @@ func (s *tradeService) RegisterMT5Connection(conn *net.TCPConn) {
 	s.mt5Conn = conn
 	s.mt5ConnMu.Unlock()
 
-	// Start reading responses from the MT5 connection
 	go func() {
 		buf := make([]byte, 4096)
 		for {
@@ -210,13 +211,7 @@ func (s *tradeService) PlaceTrade(userID, symbolName string, tradeType models.Tr
 	}
 
 	validOrderTypes := []string{"MARKET", "LIMIT", "BUY_STOP", "SELL_STOP", "BUY_LIMIT", "SELL_LIMIT"}
-	isValidOrderType := false
-	for _, ot := range validOrderTypes {
-		if orderType == ot {
-			isValidOrderType = true
-			break
-		}
-	}
+	isValidOrderType := slices.Contains(validOrderTypes, orderType)
 	if !isValidOrderType {
 		return nil, errors.New("invalid order type")
 	}

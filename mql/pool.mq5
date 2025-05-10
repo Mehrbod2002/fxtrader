@@ -149,7 +149,7 @@ void ProcessTradeRequest(string json_data)
    else if (msg_type == "balance_request")
    {
       string user_id = json.getString("user_id");
-      double balance = AccountBalance();
+      double balance = AccountInfoDouble(ACCOUNT_BALANCE);
       SendBalanceResponse(user_id, balance, "");
    }
    else

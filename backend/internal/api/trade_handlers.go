@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ func NewTradeHandler(tradeService service.TradeService, logService service.LogSe
 func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 	var req TradeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		fmt.Println(err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
