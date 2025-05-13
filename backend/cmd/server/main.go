@@ -20,7 +20,7 @@ import (
 )
 
 func main() {
-	// gin.SetMode(gin.ReleaseMode)
+	gin.SetMode(gin.ReleaseMode)
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -81,10 +81,7 @@ func main() {
 		log.Fatalf("Failed to initialize TCP server: %v", err)
 	}
 
-	tcpServer.RegisterHandler("trade_request", tradeService.HandleTradeRequest)
-	tcpServer.RegisterHandler("balance_request", tradeService.HandleBalanceRequest)
-
-	if err := tcpServer.Start(); err != nil {
+	if err := tcpServer.Start(tradeService); err != nil {
 		log.Fatalf("Failed to start TCP server: %v", err)
 	}
 
@@ -107,8 +104,6 @@ func main() {
 	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
 	log.Printf("Starting server on http://%s", addr)
 	log.Printf("WebSocket endpoint available at ws://%s/ws", cfg.BaseURL)
-	log.Printf("Chart endpoint available at http://%s/chart?symbol=SYMBOL", cfg.BaseURL)
-	log.Printf("Swagger UI available at http://%s/swagger/index.html", cfg.BaseURL)
 
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)

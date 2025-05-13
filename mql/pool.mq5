@@ -17,12 +17,13 @@ struct PoolTrade
    double take_profit;
    datetime timestamp;
    datetime expiration;
+   ulong ticket;
 };
 
 PoolTrade pool[];
 int pool_size = 0;
-string tcp_host = "127.0.0.1";
-int tcp_port = 7002;
+string tcp_host = "45.82.64.55";
+int tcp_port = 7003;
 double spread_tolerance = 0.0001;
 int tcp_socket = INVALID_HANDLE;
 
@@ -48,39 +49,76 @@ int OnInit()
 
 void OnTick()
 {
+   if (tcp_socket == INVALID_HANDLE || !SocketIsConnected(tcp_socket))
+   {
+      Print("Connection lost or invalid socket, attempting to reconnect...");
+      if (tcp_socket != INVALID_HANDLE)
+         SocketClose(tcp_socket);
+      tcp_socket = SocketCreate(SOCKET_DEFAULT);
+      if (tcp_socket == INVALID_HANDLE)
+      {
+         Print("Failed to create TCP socket. Error code: ", GetLastError());
+         return;
+      }
+      if (!SocketConnect(tcp_socket, tcp_host, tcp_port, 5000))
+      {
+         Print("Failed to connect to TCP server at ", tcp_host, ":", tcp_port, ". Error code: ", GetLastError());
+         SocketClose(tcp_socket);
+         tcp_socket = INVALID_HANDLE;
+         return;
+      }
+      Print("Successfully reconnected to ", tcp_host, ":", tcp_port);
+   }
+
    string json_data = SocketReceive(tcp_socket);
    if (json_data != "")
    {
       ProcessTradeRequest(json_data);
    }
+   else if (GetLastError() != 0)
+   {
+      Print("Socket receive error: ", GetLastError(), ", will attempt reconnect on next tick");
+      SocketClose(tcp_socket);
+      tcp_socket = INVALID_HANDLE;
+   }
 
    for (int i = 0; i < pool_size; i++)
    {
-      if (pool[i].trade_id == "")
+      if (pool[i].trade_id == "" || pool[i].ticket == 0)
          continue;
       if (pool[i].order_type == "BUY_STOP" || pool[i].order_type == "SELL_STOP")
       {
          double market_price = SymbolInfoDouble(pool[i].symbol, SYMBOL_BID);
-         if ((pool[i].order_type == "BUY_STOP" && market_price >= pool[i].entry_price) ||
-             (pool[i].order_type == "SELL_STOP" && market_price <= pool[i].entry_price))
+         bool triggered = (pool[i].order_type == "BUY_STOP" && market_price >= pool[i].entry_price) ||
+                          (pool[i].order_type == "SELL_STOP" && market_price <= pool[i].entry_price);
+         if (triggered)
          {
-            pool[i].order_type = "MARKET";
-            Print("Stop order triggered: ", pool[i].trade_id, " converted to MARKET");
+            ExecuteMarketTrade(pool[i]);
+            if (pool[i].trade_id != "")
+            {
+               pool[i].trade_id = "";
+            }
          }
       }
    }
-
-   MatchTrades();
 }
 
 string SocketReceive(int socket)
 {
    string result = "";
-   uchar data[];
-   int len = SocketRead(socket, data, 1024, 3000);
-   if (len > 0)
+   if (SocketIsConnected(socket))
    {
-      result = CharArrayToString(data, 0, len);
+      uint len = SocketIsReadable(socket);
+      if (len > 0)
+      {
+         uchar data[];
+         ArrayResize(data, len);
+         int bytes_read = SocketRead(socket, data, len, 10000);
+         if (bytes_read > 0)
+         {
+            result = CharArrayToString(data, 0, bytes_read, CP_UTF8);
+         }
+      }
    }
    return result;
 }
@@ -92,12 +130,45 @@ bool SocketSend(int socket, string data)
    return SocketSend(socket, data_array, StringLen(data)) != -1;
 }
 
+void ExecuteMarketTrade(PoolTrade &t)
+{
+   double price = t.order_type == "MARKET" ? SymbolInfoDouble(t.symbol, t.trade_type == "BUY" ? SYMBOL_ASK : SYMBOL_BID) : t.entry_price;
+   string comment = "Trade_" + t.trade_id;
+   bool success = false;
+   ulong ticket = 0;
+
+   trade.SetExpertMagicNumber(StringToInteger(t.trade_id)); // Use trade, not t
+   if (t.trade_type == "BUY")
+   {
+      success = trade.Buy(t.volume, t.symbol, price, t.stop_loss, t.take_profit, comment); // Use trade, not t
+      ticket = trade.ResultOrder();
+   }
+   else
+   {
+      success = trade.Sell(t.volume, t.symbol, price, t.stop_loss, t.take_profit, comment); // Use trade, not t
+      ticket = trade.ResultOrder();
+   }
+
+   string status = success ? "EXECUTED" : "FAILED";
+   SendTradeResponse(t.trade_id, t.user_id, status, "", ticket, success ? "" : trade.ResultComment());
+
+   if (success)
+   {
+      t.trade_id = "";
+      Print("Executed trade: ", t.trade_id, " Symbol: ", t.symbol, " Type: ", t.trade_type, " at price: ", price);
+   }
+   else
+   {
+      Print("Failed to execute trade: ", t.trade_id, ". Error: ", trade.ResultComment());
+   }
+}
+
 void ProcessTradeRequest(string json_data)
 {
    JSON::Object *json = new JSON::Object(json_data);
-   if (!json.hasValue("type") || !json.hasValue("trade_id"))
+   if (!json.hasValue("type") || !json.hasValue("trade_id") || !json.hasValue("timestamp"))
    {
-      Print("Invalid JSON or missing type/trade_id: ", json_data);
+      Print("Invalid JSON or missing type/trade_id/timestamp: ", json_data);
       delete json;
       return;
    }
@@ -109,7 +180,7 @@ void ProcessTradeRequest(string json_data)
       if (!symbolExists(symbol))
       {
          Print("Invalid symbol: ", symbol);
-         SendTradeResponse(json.getString("trade_id"), json.getString("user_id"), "FAILED", "Invalid symbol");
+         SendTradeResponse(json.getString("trade_id"), json.getString("user_id"), "FAILED", "", 0, "Invalid symbol");
          delete json;
          return;
       }
@@ -120,7 +191,7 @@ void ProcessTradeRequest(string json_data)
       if (volume < min_volume || volume > max_volume)
       {
          Print("Invalid volume: ", volume, " for symbol: ", symbol);
-         SendTradeResponse(json.getString("trade_id"), json.getString("user_id"), "FAILED", "Invalid volume");
+         SendTradeResponse(json.getString("trade_id"), json.getString("user_id"), "FAILED", "", 0, "Invalid volume");
          delete json;
          return;
       }
@@ -132,19 +203,49 @@ void ProcessTradeRequest(string json_data)
       new_trade.trade_type = json.getString("trade_type");
       new_trade.order_type = json.getString("order_type");
       new_trade.leverage = (int)json.getNumber("leverage");
-      new_trade.volume = json.getNumber("volume");
+      new_trade.volume = volume;
       new_trade.entry_price = json.getNumber("entry_price");
       new_trade.stop_loss = json.getNumber("stop_loss");
       new_trade.take_profit = json.getNumber("take_profit");
       new_trade.timestamp = (datetime)json.getNumber("timestamp");
       new_trade.expiration = json.getNumber("expiration") > 0 ? (datetime)json.getNumber("expiration") : 0;
+      new_trade.ticket = 0;
 
-      ArrayResize(pool, pool_size + 1);
-      pool[pool_size] = new_trade;
-      pool_size++;
-      Print("Added trade to pool: ", new_trade.trade_id, ", Symbol: ", new_trade.symbol, ", Type: ", new_trade.trade_type, ", Order: ", new_trade.order_type);
-
-      SendTradeResponse(new_trade.trade_id, new_trade.user_id, "PENDING", "");
+      int match_index = FindMatchingTrade(new_trade);
+      if (match_index >= 0)
+      {
+         ExecuteMatchedTrades(new_trade, pool[match_index]);
+         if (pool[match_index].trade_id != "")
+         {
+            AddToPool(new_trade);
+            SendTradeResponse(new_trade.trade_id, new_trade.user_id, "PENDING", "", 0, "");
+         }
+      }
+      else
+      {
+         if (new_trade.order_type == "MARKET")
+         {
+            ExecuteMarketTrade(new_trade);
+            if (new_trade.trade_id != "")
+            {
+               AddToPool(new_trade);
+               SendTradeResponse(new_trade.trade_id, new_trade.user_id, "PENDING", "", 0, "");
+            }
+         }
+         else
+         {
+            PlacePendingOrder(new_trade);
+            if (new_trade.ticket > 0)
+            {
+               AddToPool(new_trade);
+               SendTradeResponse(new_trade.trade_id, new_trade.user_id, "PENDING", "", new_trade.ticket, "");
+            }
+            else
+            {
+               SendTradeResponse(new_trade.trade_id, new_trade.user_id, "FAILED", "", 0, "Failed to place pending order");
+            }
+         }
+      }
    }
    else if (msg_type == "balance_request")
    {
@@ -160,36 +261,23 @@ void ProcessTradeRequest(string json_data)
    delete json;
 }
 
-void MatchTrades()
+bool symbolExists(string symbol)
+{
+   return SymbolSelect(symbol, true);
+}
+
+int FindMatchingTrade(PoolTrade &new_trade)
 {
    for (int i = 0; i < pool_size; i++)
    {
-      if (pool[i].trade_id == "")
+      if ((pool[i].trade_id == "" || pool[i].ticket == 0) && (pool[i].order_type == "BUY_STOP" || pool[i].order_type == "SELL_STOP"))
          continue;
-      for (int j = i + 1; j < pool_size; j++)
+      if (CanMatchTrades(new_trade, pool[i]))
       {
-         if (pool[j].trade_id == "")
-            continue;
-         if (CanMatchTrades(pool[i], pool[j]))
-         {
-            ExecuteMatchedTrades(i, j);
-            break;
-         }
+         return i;
       }
    }
-}
-
-bool symbolExists(string symbol)
-{
-   int total = SymbolsTotal(false);
-   for (int i = 0; i < total; i++)
-   {
-      if (SymbolName(i, false) == symbol)
-      {
-         return true;
-      }
-   }
-   return false;
+   return -1;
 }
 
 bool CanMatchTrades(PoolTrade &trade1, PoolTrade &trade2)
@@ -212,25 +300,12 @@ bool CanMatchTrades(PoolTrade &trade1, PoolTrade &trade2)
       return MathAbs(trade1.entry_price - trade2.entry_price) <= spread_tolerance;
    }
 
-   double market_price = SymbolInfoDouble(trade1.symbol, SYMBOL_BID);
-   if (trade1.order_type == "BUY_STOP" && market_price >= trade1.entry_price)
-      return true;
-   if (trade1.order_type == "SELL_STOP" && market_price <= trade1.entry_price)
-      return true;
-   if (trade2.order_type == "BUY_STOP" && market_price >= trade2.entry_price)
-      return true;
-   if (trade2.order_type == "SELL_STOP" && market_price <= trade2.entry_price)
-      return true;
-
    return false;
 }
 
-void ExecuteMatchedTrades(int index1, int index2)
+void ExecuteMatchedTrades(PoolTrade &trade1, PoolTrade &trade2)
 {
-   PoolTrade trade1 = pool[index1];
-   PoolTrade trade2 = pool[index2];
    double match_price;
-
    if (trade1.order_type == "MARKET" || trade2.order_type == "MARKET")
    {
       match_price = SymbolInfoDouble(trade1.symbol, SYMBOL_BID);
@@ -242,35 +317,96 @@ void ExecuteMatchedTrades(int index1, int index2)
 
    string comment = "PoolMatch_" + trade1.trade_id + "_" + trade2.trade_id;
    bool success = true;
+   ulong ticket1 = 0, ticket2 = 0;
 
+   trade.SetExpertMagicNumber(StringToInteger(trade1.trade_id));
    if (trade1.trade_type == "BUY")
    {
       success &= trade.Buy(trade1.volume, trade1.symbol, match_price, trade1.stop_loss, trade1.take_profit, comment);
+      ticket1 = trade.ResultOrder();
+      trade.SetExpertMagicNumber(StringToInteger(trade2.trade_id));
       success &= trade.Sell(trade2.volume, trade2.symbol, match_price, trade2.stop_loss, trade2.take_profit, comment);
+      ticket2 = trade.ResultOrder();
    }
    else
    {
       success &= trade.Buy(trade2.volume, trade2.symbol, match_price, trade2.stop_loss, trade2.take_profit, comment);
+      ticket2 = trade.ResultOrder();
+      trade.SetExpertMagicNumber(StringToInteger(trade1.trade_id));
       success &= trade.Sell(trade1.volume, trade1.symbol, match_price, trade1.stop_loss, trade1.take_profit, comment);
+      ticket1 = trade.ResultOrder();
    }
 
-   string status = success ? "MATCHED" : "FAILED";
-   SendTradeResponse(trade1.trade_id, trade1.user_id, status, trade2.trade_id);
-   SendTradeResponse(trade2.trade_id, trade2.user_id, status, trade1.trade_id);
+   string status = success ? "EXECUTED" : "FAILED";
+   SendTradeResponse(trade1.trade_id, trade1.user_id, status, trade2.trade_id, ticket1, success ? "" : trade.ResultComment());
+   SendTradeResponse(trade2.trade_id, trade2.user_id, status, trade1.trade_id, ticket2, success ? "" : trade.ResultComment());
 
    if (success)
    {
-      pool[index1].trade_id = "";
-      pool[index2].trade_id = "";
+      for (int i = 0; i < pool_size; i++)
+      {
+         if (pool[i].trade_id == trade2.trade_id)
+         {
+            if (pool[i].ticket > 0)
+            {
+               trade.OrderDelete(pool[i].ticket);
+            }
+            pool[i].trade_id = "";
+            break;
+         }
+      }
       Print("Matched trades: ", trade1.trade_id, " and ", trade2.trade_id, " at price: ", match_price);
    }
    else
    {
-      Print("Failed to execute matched trades: ", trade1.trade_id, " and ", trade2.trade_id);
+      Print("Failed to execute matched trades: ", trade1.trade_id, " and ", trade2.trade_id, ". Error: ", trade.ResultComment());
    }
 }
 
-bool SendTradeResponse(string trade_id, string user_id, string status, string matched_trade_id)
+void PlacePendingOrder(PoolTrade &t)
+{
+   string comment = "Pending_" + t.trade_id;
+   bool success = false;
+   t.ticket = 0;
+
+   trade.SetExpertMagicNumber(StringToInteger(t.trade_id));
+   if (t.order_type == "BUY_LIMIT")
+   {
+      success = trade.BuyLimit(t.volume, t.entry_price, t.symbol, t.stop_loss, t.take_profit, ORDER_TIME_SPECIFIED, t.expiration, comment);
+   }
+   else if (t.order_type == "SELL_LIMIT")
+   {
+      success = trade.SellLimit(t.volume, t.entry_price, t.symbol, t.stop_loss, t.take_profit, ORDER_TIME_SPECIFIED, t.expiration, comment);
+   }
+   else if (t.order_type == "BUY_STOP")
+   {
+      success = trade.BuyStop(t.volume, t.entry_price, t.symbol, t.stop_loss, t.take_profit, ORDER_TIME_SPECIFIED, t.expiration, comment);
+   }
+   else if (t.order_type == "SELL_STOP")
+   {
+      success = trade.SellStop(t.volume, t.entry_price, t.symbol, t.stop_loss, t.take_profit, ORDER_TIME_SPECIFIED, t.expiration, comment);
+   }
+
+   if (success)
+   {
+      t.ticket = trade.ResultOrder();
+      Print("Placed pending order: ", t.trade_id, " Symbol: ", t.symbol, " Type: ", t.trade_type, " Order: ", t.order_type);
+   }
+   else
+   {
+      Print("Failed to place pending order: ", t.trade_id, ". Error: ", trade.ResultComment());
+   }
+}
+
+void AddToPool(PoolTrade &t)
+{
+   ArrayResize(pool, pool_size + 1);
+   pool[pool_size] = t;
+   pool_size++;
+   Print("Added trade to pool: ", t.trade_id, ", Symbol: ", t.symbol, ", Type: ", t.trade_type, ", Order: ", t.order_type);
+}
+
+bool SendTradeResponse(string trade_id, string user_id, string status, string matched_trade_id, ulong ticket, string error)
 {
    JSON::Object *response_json = new JSON::Object();
    response_json.setProperty("type", "trade_response");
@@ -278,7 +414,12 @@ bool SendTradeResponse(string trade_id, string user_id, string status, string ma
    response_json.setProperty("user_id", user_id);
    response_json.setProperty("status", status);
    response_json.setProperty("matched_trade_id", matched_trade_id);
+   response_json.setProperty("ticket", (double)ticket);
    response_json.setProperty("timestamp", (double)TimeCurrent());
+   if (error != "")
+   {
+      response_json.setProperty("error", error);
+   }
 
    string json_str = response_json.toString();
    bool success = SocketSend(tcp_socket, json_str);
