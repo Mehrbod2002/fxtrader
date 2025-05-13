@@ -7,19 +7,21 @@ import (
 )
 
 type Client struct {
-	ID      string
-	Conn    *websocket.Conn
-	Send    chan *PriceData
-	Symbols map[string]bool
-	mu      sync.RWMutex
+	ID        string
+	Conn      *websocket.Conn
+	Send      chan *PriceData
+	SendTrade chan *TradeHistory
+	Symbols   map[string]bool
+	mu        sync.RWMutex
 }
 
 func NewClient(id string, conn *websocket.Conn) *Client {
 	return &Client{
-		ID:      id,
-		Conn:    conn,
-		Send:    make(chan *PriceData, 256),
-		Symbols: make(map[string]bool),
+		ID:        id,
+		Conn:      conn,
+		Send:      make(chan *PriceData, 256),
+		SendTrade: make(chan *TradeHistory, 256),
+		Symbols:   make(map[string]bool),
 	}
 }
 
@@ -43,8 +45,11 @@ func (c *Client) IsSubscribed(symbol string) bool {
 }
 
 func (c *Client) Close() {
-	c.Conn.Close()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	close(c.Send)
+	close(c.SendTrade)
+	c.Conn.Close()
 }
 
 type SocketMessage struct {

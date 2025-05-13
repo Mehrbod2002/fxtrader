@@ -15,13 +15,16 @@ type TradeHistory struct {
 	Leverage       int                `bson:"leverage"`
 	Volume         float64            `bson:"volume"`
 	EntryPrice     float64            `bson:"entry_price"`
+	ClosePrice     float64            `bson:"close_price,omitempty"`
 	StopLoss       float64            `bson:"stop_loss"`
 	TakeProfit     float64            `bson:"take_profit"`
 	OpenTime       time.Time          `bson:"open_time"`
 	CloseTime      *time.Time         `bson:"close_time,omitempty"`
+	CloseReason    string             `bson:"close_reason,omitempty"`
 	Status         string             `bson:"status"`
 	MatchedTradeID string             `bson:"matched_trade_id,omitempty"`
 	Expiration     *time.Time         `bson:"expiration,omitempty"`
+	AccountType    string             `bson:"account_type"`
 }
 
 type TradeType string

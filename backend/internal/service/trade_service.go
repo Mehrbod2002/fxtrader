@@ -6,55 +6,80 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
-
-	"slices"
-
+	"github.com/mehrbod2002/fxtrader/internal/ws"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type TradeService interface {
-	PlaceTrade(userID, symbol string, tradeType models.TradeType, orderType string, leverage int, volume, entryPrice, stopLoss, takeProfit float64, expiration *time.Time) (*models.TradeHistory, error)
+	PlaceTrade(userID, symbol, accountType string, tradeType models.TradeType, orderType string, leverage int, volume, entryPrice, stopLoss, takeProfit float64, expiration *time.Time) (*models.TradeHistory, error)
+	CloseTrade(tradeID, userID, accountType string) error
+	StreamTrades(userID, accountType string) error
 	GetTrade(id string) (*models.TradeHistory, error)
 	GetTradesByUserID(userID string) ([]*models.TradeHistory, error)
 	GetAllTrades() ([]*models.TradeHistory, error)
 	HandleTradeResponse(response TradeResponse) error
+	HandleCloseTradeResponse(response CloseTradeResponse) error
+	HandleOrderStreamResponse(response OrderStreamResponse) error
 	HandleTradeRequest(request map[string]interface{}) error
 	HandleBalanceRequest(request map[string]interface{}) error
-	RequestBalance(userID string) (float64, error)
+	RequestBalance(userID, accountType string) (float64, error)
 	RegisterMT5Connection(conn *net.TCPConn)
 }
 
 type tradeService struct {
 	tradeRepo        repository.TradeRepository
 	symbolRepo       repository.SymbolRepository
+	userRepo         repository.UserRepository
 	logService       LogService
 	mt5Conn          *net.TCPConn
 	mt5ConnMu        sync.Mutex
-	responseChan     chan TradeResponse
+	responseChan     chan interface{}
 	balanceChan      chan BalanceResponse
+	hub              *ws.Hub
 	copyTradeService CopyTradeService
 }
 
-type BalanceResponse struct {
-	Type      string  `json:"type"`
-	UserID    string  `json:"user_id"`
-	Balance   float64 `json:"balance"`
-	Error     string  `json:"error,omitempty"`
-	Timestamp int64   `json:"timestamp"`
+type CloseTradeResponse struct {
+	TradeID     string  `json:"trade_id"`
+	UserID      string  `json:"user_id"`
+	AccountType string  `json:"account_type"` // "DEMO" or "REAL"
+	Status      string  `json:"status"`       // e.g., "SUCCESS", "FAILED"
+	ClosePrice  float64 `json:"close_price"`
+	CloseReason string  `json:"close_reason"`
+	Timestamp   int64   `json:"timestamp"`
 }
 
-func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, logService LogService, copyTradeService CopyTradeService) (TradeService, error) {
+type OrderStreamResponse struct {
+	UserID      string                `json:"user_id"`
+	AccountType string                `json:"account_type"` // "DEMO" or "REAL"
+	Trades      []models.TradeHistory `json:"trades"`
+	Timestamp   int64                 `json:"timestamp"`
+}
+
+type BalanceResponse struct {
+	Type        string  `json:"type"`
+	UserID      string  `json:"user_id"`
+	AccountType string  `json:"account_type"` // "DEMO" or "REAL"
+	Balance     float64 `json:"balance"`
+	Error       string  `json:"error,omitempty"`
+	Timestamp   int64   `json:"timestamp"`
+}
+
+func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, userRepo repository.UserRepository, logService LogService, hub *ws.Hub, copyTradeService CopyTradeService) (TradeService, error) {
 	return &tradeService{
 		tradeRepo:        tradeRepo,
 		symbolRepo:       symbolRepo,
+		userRepo:         userRepo,
 		logService:       logService,
-		responseChan:     make(chan TradeResponse, 100),
+		responseChan:     make(chan interface{}, 100),
 		balanceChan:      make(chan BalanceResponse, 100),
+		hub:              hub,
 		copyTradeService: copyTradeService,
 	}, nil
 }
@@ -95,6 +120,20 @@ func (s *tradeService) RegisterMT5Connection(conn *net.TCPConn) {
 					continue
 				}
 				s.responseChan <- response
+			} else if msgType == "close_trade_response" {
+				var response CloseTradeResponse
+				if err := json.Unmarshal(buf[:n], &response); err != nil {
+					log.Printf("Failed to unmarshal close trade response: %v", err)
+					continue
+				}
+				s.responseChan <- response
+			} else if msgType == "order_stream_response" {
+				var response OrderStreamResponse
+				if err := json.Unmarshal(buf[:n], &response); err != nil {
+					log.Printf("Failed to unmarshal order stream response: %v", err)
+					continue
+				}
+				s.responseChan <- response
 			} else if msgType == "balance_response" {
 				var response BalanceResponse
 				if err := json.Unmarshal(buf[:n], &response); err != nil {
@@ -123,6 +162,225 @@ func (s *tradeService) sendToMT5(data []byte) error {
 	return nil
 }
 
+func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType models.TradeType, orderType string, leverage int, volume, entryPrice, stopLoss, takeProfit float64, expiration *time.Time) (*models.TradeHistory, error) {
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, errors.New("invalid user ID")
+	}
+
+	user, err := s.userRepo.GetUserByID(userObjID)
+	if err != nil {
+		return nil, errors.New("failed to fetch user")
+	}
+
+	if user == nil {
+		return nil, errors.New("user not found")
+	}
+
+	if !slices.Contains(user.AccountTypes, accountType) {
+		return nil, fmt.Errorf("user does not have %s account", accountType)
+	}
+
+	var balance float64
+	if accountType == "DEMO" {
+		balance = user.DemoMT5Balance
+	} else if accountType == "REAL" {
+		balance = user.RealMT5Balance
+	} else {
+		return nil, errors.New("invalid account type")
+	}
+
+	if balance <= 0 {
+		return nil, fmt.Errorf("insufficient %s MT5 balance", accountType)
+	}
+
+	symbols, err := s.symbolRepo.GetAllSymbols()
+	if err != nil {
+		return nil, errors.New("failed to fetch symbols")
+	}
+
+	var symbolObj *models.Symbol
+	for _, sym := range symbols {
+		if sym.SymbolName == symbol {
+			symbolObj = sym
+			break
+		}
+	}
+
+	if symbolObj == nil {
+		return nil, errors.New("symbol not found")
+	}
+
+	if tradeType != models.TradeTypeBuy && tradeType != models.TradeTypeSell {
+		return nil, errors.New("invalid trade type")
+	}
+
+	validOrderTypes := []string{"MARKET", "LIMIT", "BUY_STOP", "SELL_STOP", "BUY_LIMIT", "SELL_LIMIT"}
+	isValidOrderType := slices.Contains(validOrderTypes, orderType)
+	if !isValidOrderType {
+		return nil, errors.New("invalid order type")
+	}
+
+	if volume < symbolObj.MinLot || volume > symbolObj.MaxLot {
+		return nil, errors.New("volume out of allowed range")
+	}
+
+	if leverage > symbolObj.Leverage {
+		return nil, errors.New("leverage exceeds symbol limit")
+	}
+
+	if orderType != "MARKET" && entryPrice <= 0 {
+		return nil, errors.New("entry price required for non-market orders")
+	}
+	if orderType == "MARKET" && entryPrice > 0 {
+		return nil, errors.New("entry price not allowed for market orders")
+	}
+
+	if stopLoss < 0 || takeProfit < 0 {
+		return nil, errors.New("stop loss and take profit cannot be negative")
+	}
+
+	if expiration != nil && expiration.Before(time.Now()) {
+		return nil, errors.New("expiration time must be in the future")
+	}
+
+	trade := &models.TradeHistory{
+		ID:          primitive.NewObjectID(),
+		UserID:      userObjID,
+		Symbol:      symbol,
+		TradeType:   tradeType,
+		OrderType:   orderType,
+		Leverage:    leverage,
+		Volume:      volume,
+		EntryPrice:  entryPrice,
+		StopLoss:    stopLoss,
+		TakeProfit:  takeProfit,
+		OpenTime:    time.Now(),
+		Status:      string(models.TradeStatusPending),
+		Expiration:  expiration,
+		AccountType: accountType,
+	}
+
+	tradeRequest := map[string]interface{}{
+		"type":         "trade_request",
+		"trade_id":     trade.ID.Hex(),
+		"user_id":      trade.UserID.Hex(),
+		"account_type": accountType,
+		"symbol":       trade.Symbol,
+		"trade_type":   trade.TradeType,
+		"order_type":   trade.OrderType,
+		"leverage":     trade.Leverage,
+		"volume":       trade.Volume,
+		"entry_price":  trade.EntryPrice,
+		"stop_loss":    trade.StopLoss,
+		"take_profit":  trade.TakeProfit,
+		"timestamp":    trade.OpenTime.Unix(),
+		"expiration":   0,
+	}
+	if trade.Expiration != nil {
+		tradeRequest["expiration"] = trade.Expiration.Unix()
+	}
+
+	data, err := json.Marshal(tradeRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.sendToMT5(data); err != nil {
+		return nil, err
+	}
+
+	err = s.tradeRepo.SaveTrade(trade)
+	if err != nil {
+		return nil, err
+	}
+
+	metadata := map[string]interface{}{
+		"trade_id":     trade.ID.Hex(),
+		"symbol_name":  symbol,
+		"account_type": accountType,
+		"trade_type":   tradeType,
+		"order_type":   orderType,
+		"leverage":     leverage,
+		"volume":       volume,
+		"entry_price":  entryPrice,
+		"stop_loss":    stopLoss,
+		"take_profit":  takeProfit,
+		"expiration":   expiration,
+	}
+
+	s.logService.LogAction(userObjID, "PlaceTrade", "Trade order placed", "", metadata)
+
+	go func() {
+		if err := s.copyTradeService.MirrorTrade(trade, accountType); err != nil {
+			log.Printf("Failed to mirror trade: %v", err)
+		}
+	}()
+
+	return trade, nil
+}
+
+func (s *tradeService) HandleTradeResponse(response TradeResponse) error {
+	tradeID, err := primitive.ObjectIDFromHex(response.TradeID)
+	if err != nil {
+		return errors.New("invalid trade ID")
+	}
+	trade, err := s.tradeRepo.GetTradeByID(tradeID)
+	if err != nil {
+		return err
+	}
+	if trade == nil {
+		return errors.New("trade not found")
+	}
+	if response.Status == "MATCHED" {
+		trade.Status = string(models.TradeStatusOpen)
+		trade.MatchedTradeID = response.MatchedTradeID
+	} else if response.Status == "PENDING" {
+		trade.Status = string(models.TradeStatusPending)
+	} else if response.Status == "EXPIRED" {
+		trade.Status = string(models.TradeStatusClosed)
+		trade.CloseTime = &time.Time{}
+		*trade.CloseTime = time.Now()
+		trade.CloseReason = "EXPIRED"
+	} else {
+		trade.Status = string(models.TradeStatusClosed)
+		trade.CloseTime = &time.Time{}
+		*trade.CloseTime = time.Now()
+		trade.CloseReason = response.Status
+	}
+	err = s.tradeRepo.SaveTrade(trade)
+	if err != nil {
+		return err
+	}
+	metadata := map[string]interface{}{
+		"trade_id":         response.TradeID,
+		"status":           response.Status,
+		"matched_trade_id": response.MatchedTradeID,
+	}
+	s.logService.LogAction(trade.UserID, "TradeResponse", "Trade status updated", "", metadata)
+	return nil
+}
+
+func (s *tradeService) GetTrade(id string) (*models.TradeHistory, error) {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return nil, err
+	}
+	return s.tradeRepo.GetTradeByID(objID)
+}
+
+func (s *tradeService) GetTradesByUserID(userID string) ([]*models.TradeHistory, error) {
+	objID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, err
+	}
+	return s.tradeRepo.GetTradesByUserID(objID)
+}
+
+func (s *tradeService) GetAllTrades() ([]*models.TradeHistory, error) {
+	return s.tradeRepo.GetAllTrades()
+}
+
 func (s *tradeService) HandleTradeRequest(request map[string]interface{}) error {
 	_, ok := request["trade_id"].(string)
 	if !ok {
@@ -137,6 +395,10 @@ func (s *tradeService) HandleTradeRequest(request map[string]interface{}) error 
 		return errors.New("missing or invalid symbol")
 	}
 	tradeTypeStr, ok := request["trade_type"].(string)
+	if !ok {
+		return errors.New("missing or invalid trade_type")
+	}
+	accountTypeStr, ok := request["account_type"].(string)
 	if !ok {
 		return errors.New("missing or invalid trade_type")
 	}
@@ -169,222 +431,41 @@ func (s *tradeService) HandleTradeRequest(request map[string]interface{}) error 
 		t := time.Unix(int64(exp), 0)
 		expiration = &t
 	}
-
 	tradeType := models.TradeType(tradeTypeStr)
-	_, err := s.PlaceTrade(userID, symbol, tradeType, orderType, int(leverage), volume, entryPrice, stopLoss, takeProfit, expiration)
+	_, err := s.PlaceTrade(userID, symbol, accountTypeStr, tradeType, orderType, int(leverage), volume, entryPrice, stopLoss, takeProfit, expiration)
 	return err
 }
 
 func (s *tradeService) HandleBalanceRequest(request map[string]interface{}) error {
 	userID, ok := request["user_id"].(string)
-	if !ok {
+	accountType, isOk := request["account_type"].(string)
+	if !ok || !isOk {
 		return errors.New("missing or invalid user_id")
 	}
-
-	_, err := s.RequestBalance(userID)
+	_, err := s.RequestBalance(userID, accountType)
 	return err
 }
 
-func (s *tradeService) PlaceTrade(userID, symbolName string, tradeType models.TradeType, orderType string, leverage int, volume, entryPrice, stopLoss, takeProfit float64, expiration *time.Time) (*models.TradeHistory, error) {
+func (s *tradeService) RequestBalance(userID, accountType string) (float64, error) {
 	userObjID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		return nil, errors.New("invalid user ID")
-	}
-
-	symbols, err := s.symbolRepo.GetAllSymbols()
-	if err != nil {
-		return nil, errors.New("failed to fetch symbols")
-	}
-	var symbol *models.Symbol
-	for _, sym := range symbols {
-		if sym.SymbolName == symbolName {
-			symbol = sym
-			break
-		}
-	}
-	if symbol == nil {
-		return nil, errors.New("symbol not found")
-	}
-
-	if tradeType != models.TradeTypeBuy && tradeType != models.TradeTypeSell {
-		return nil, errors.New("invalid trade type")
-	}
-
-	validOrderTypes := []string{"MARKET", "LIMIT", "BUY_STOP", "SELL_STOP", "BUY_LIMIT", "SELL_LIMIT"}
-	isValidOrderType := slices.Contains(validOrderTypes, orderType)
-	if !isValidOrderType {
-		return nil, errors.New("invalid order type")
-	}
-
-	if volume < symbol.MinLot || volume > symbol.MaxLot {
-		return nil, errors.New("volume out of allowed range")
-	}
-
-	if leverage > symbol.Leverage {
-		return nil, errors.New("leverage exceeds symbol limit")
-	}
-
-	if orderType != "MARKET" && entryPrice <= 0 {
-		return nil, errors.New("entry price required for non-market orders")
-	}
-	if orderType == "MARKET" && entryPrice > 0 {
-		return nil, errors.New("entry price not allowed for market orders")
-	}
-
-	if stopLoss < 0 || takeProfit < 0 {
-		return nil, errors.New("stop loss and take profit cannot be negative")
-	}
-
-	if expiration != nil && expiration.Before(time.Now()) {
-		return nil, errors.New("expiration time must be in the future")
-	}
-
-	trade := &models.TradeHistory{
-		ID:         primitive.NewObjectID(),
-		UserID:     userObjID,
-		Symbol:     symbolName,
-		TradeType:  tradeType,
-		OrderType:  orderType,
-		Leverage:   leverage,
-		Volume:     volume,
-		EntryPrice: entryPrice,
-		StopLoss:   stopLoss,
-		TakeProfit: takeProfit,
-		OpenTime:   time.Now(),
-		Status:     string(models.TradeStatusPending),
-		Expiration: expiration,
-	}
-
-	tradeRequest := map[string]interface{}{
-		"type":        "trade_request",
-		"trade_id":    trade.ID.Hex(),
-		"user_id":     trade.UserID.Hex(),
-		"symbol":      trade.Symbol,
-		"trade_type":  trade.TradeType,
-		"order_type":  trade.OrderType,
-		"leverage":    trade.Leverage,
-		"volume":      trade.Volume,
-		"entry_price": trade.EntryPrice,
-		"stop_loss":   trade.StopLoss,
-		"take_profit": trade.TakeProfit,
-		"timestamp":   trade.OpenTime.Unix(),
-		"expiration":  0,
-	}
-	if trade.Expiration != nil {
-		tradeRequest["expiration"] = trade.Expiration.Unix()
-	}
-
-	data, err := json.Marshal(tradeRequest)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.sendToMT5(data); err != nil {
-		return nil, err
-	}
-
-	err = s.tradeRepo.SaveTrade(trade)
-	if err != nil {
-		return nil, err
-	}
-
-	metadata := map[string]interface{}{
-		"trade_id":    trade.ID.Hex(),
-		"symbol_name": symbolName,
-		"trade_type":  tradeType,
-		"order_type":  orderType,
-		"leverage":    leverage,
-		"volume":      volume,
-		"entry_price": entryPrice,
-		"stop_loss":   stopLoss,
-		"take_profit": takeProfit,
-		"expiration":  expiration,
-	}
-	s.logService.LogAction(userObjID, "PlaceTrade", "Trade order placed", "", metadata)
-
-	go func() {
-		if err := s.copyTradeService.MirrorTrade(trade); err != nil {
-			log.Printf("Failed to mirror trade: %v", err)
-		}
-	}()
-
-	return trade, nil
-}
-
-func (s *tradeService) HandleTradeResponse(response TradeResponse) error {
-	tradeID, err := primitive.ObjectIDFromHex(response.TradeID)
-	if err != nil {
-		return errors.New("invalid trade ID")
-	}
-
-	trade, err := s.tradeRepo.GetTradeByID(tradeID)
-	if err != nil {
-		return err
-	}
-	if trade == nil {
-		return errors.New("trade not found")
-	}
-
-	if response.Status == "MATCHED" {
-		trade.Status = string(models.TradeStatusOpen)
-		trade.MatchedTradeID = response.MatchedTradeID
-	} else if response.Status == "PENDING" {
-		trade.Status = string(models.TradeStatusPending)
-	} else if response.Status == "EXPIRED" {
-		trade.Status = string(models.TradeStatusClosed)
-		trade.CloseTime = &time.Time{}
-		*trade.CloseTime = time.Now()
-	} else {
-		trade.Status = string(models.TradeStatusClosed)
-		trade.CloseTime = &time.Time{}
-		*trade.CloseTime = time.Now()
-	}
-
-	err = s.tradeRepo.SaveTrade(trade)
-	if err != nil {
-		return err
-	}
-
-	metadata := map[string]interface{}{
-		"trade_id":         response.TradeID,
-		"status":           response.Status,
-		"matched_trade_id": response.MatchedTradeID,
-	}
-	s.logService.LogAction(trade.UserID, "TradeResponse", "Trade status updated", "", metadata)
-
-	return nil
-}
-
-func (s *tradeService) GetTrade(id string) (*models.TradeHistory, error) {
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return nil, err
-	}
-	return s.tradeRepo.GetTradeByID(objID)
-}
-
-func (s *tradeService) GetTradesByUserID(userID string) ([]*models.TradeHistory, error) {
-	objID, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		return nil, err
-	}
-	return s.tradeRepo.GetTradesByUserID(objID)
-}
-
-func (s *tradeService) GetAllTrades() ([]*models.TradeHistory, error) {
-	return s.tradeRepo.GetAllTrades()
-}
-
-func (s *tradeService) RequestBalance(userID string) (float64, error) {
-	_, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return 0, errors.New("invalid user ID")
 	}
-
+	user, err := s.userRepo.GetUserByID(userObjID)
+	if err != nil {
+		return 0, errors.New("failed to fetch user")
+	}
+	if user == nil {
+		return 0, errors.New("user not found")
+	}
+	if !slices.Contains(user.AccountTypes, accountType) {
+		return 0, fmt.Errorf("user does not have %s account", accountType)
+	}
 	balanceRequest := map[string]interface{}{
-		"type":      "balance_request",
-		"user_id":   userID,
-		"timestamp": time.Now().Unix(),
+		"type":         "balance_request",
+		"user_id":      userID,
+		"account_type": accountType,
+		"timestamp":    time.Now().Unix(),
 	}
 
 	data, err := json.Marshal(balanceRequest)
@@ -398,30 +479,223 @@ func (s *tradeService) RequestBalance(userID string) (float64, error) {
 
 	select {
 	case response := <-s.balanceChan:
-		if response.UserID != userID {
-			return 0, errors.New("received balance response for wrong user")
+		if response.UserID != userID || response.AccountType != accountType {
+			return 0, errors.New("received balance response for wrong user or account type")
 		}
 		if response.Error != "" {
 			return 0, errors.New(response.Error)
 		}
+		if response.AccountType == "DEMO" {
+			user.DemoMT5Balance = response.Balance
+		} else if response.AccountType == "REAL" {
+			user.RealMT5Balance = response.Balance
+		}
+		if err := s.userRepo.UpdateUser(user); err != nil {
+			log.Printf("Failed to update user %s balance: %v", accountType, err)
+		}
 		return response.Balance, nil
 	case <-time.After(5 * time.Second):
-		return 0, errors.New("timeout waiting for balance response")
+		if accountType == "DEMO" {
+			return user.DemoMT5Balance, nil
+		}
+		return user.RealMT5Balance, nil
 	}
 }
 
-func (s *tradeService) handleBalanceResponse(response BalanceResponse) error {
+func (s *tradeService) handleBalanceResponse(response BalanceResponse, accountType string) error {
 	userObjID, err := primitive.ObjectIDFromHex(response.UserID)
+
 	if err != nil {
 		return errors.New("invalid user ID in balance response")
+	}
+
+	user, err := s.userRepo.GetUserByID(userObjID)
+	if err != nil {
+		return errors.New("failed to fetch user")
+	}
+	if user == nil {
+		return errors.New("user not found")
+	}
+
+	if accountType == "REAL" {
+		user.RealMT5Balance = response.Balance
+	} else {
+		user.DemoMT5Balance = response.Balance
+	}
+
+	if err := s.userRepo.UpdateUser(user); err != nil {
+		return err
 	}
 
 	metadata := map[string]interface{}{
 		"user_id": response.UserID,
 		"balance": response.Balance,
 	}
-	s.logService.LogAction(userObjID, "BalanceUpdate", "User balance updated from MT5", "", metadata)
 
+	s.logService.LogAction(userObjID, "BalanceUpdate", "User balance updated from MT5", "", metadata)
+	return nil
+}
+
+func (s *tradeService) CloseTrade(tradeID, userID, accountType string) error {
+	tradeObjID, err := primitive.ObjectIDFromHex(tradeID)
+	if err != nil {
+		return errors.New("invalid trade ID")
+	}
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return errors.New("invalid user ID")
+	}
+	trade, err := s.tradeRepo.GetTradeByID(tradeObjID)
+	if err != nil {
+		return err
+	}
+	if trade == nil {
+		return errors.New("trade not found")
+	}
+	if trade.UserID != userObjID {
+		return errors.New("trade belongs to another user")
+	}
+	if trade.AccountType != accountType {
+		return fmt.Errorf("trade is not associated with %s account", accountType)
+	}
+	if trade.Status != string(models.TradeStatusOpen) {
+		return errors.New("trade is not open")
+	}
+	closeRequest := map[string]interface{}{
+		"type":         "close_trade_request",
+		"trade_id":     tradeID,
+		"user_id":      userID,
+		"account_type": accountType,
+		"timestamp":    time.Now().Unix(),
+	}
+	data, err := json.Marshal(closeRequest)
+	if err != nil {
+		return err
+	}
+	if err := s.sendToMT5(data); err != nil {
+		return fmt.Errorf("failed to send close trade request: %v", err)
+	}
+	return nil
+}
+
+func (s *tradeService) StreamTrades(userID, accountType string) error {
+	_, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return errors.New("invalid user ID")
+	}
+	if accountType != "DEMO" && accountType != "REAL" {
+		return errors.New("invalid account type")
+	}
+	streamRequest := map[string]interface{}{
+		"type":         "order_stream_request",
+		"user_id":      userID,
+		"account_type": accountType,
+		"timestamp":    time.Now().Unix(),
+	}
+	data, err := json.Marshal(streamRequest)
+	if err != nil {
+		return err
+	}
+	if err := s.sendToMT5(data); err != nil {
+		return fmt.Errorf("failed to send order stream request: %v", err)
+	}
+	return nil
+}
+
+func (s *tradeService) HandleCloseTradeResponse(response CloseTradeResponse) error {
+	if response.Status != "SUCCESS" {
+		return fmt.Errorf("MT5 failed to close trade: %s", response.Status)
+	}
+	tradeID, err := primitive.ObjectIDFromHex(response.TradeID)
+	if err != nil {
+		return errors.New("invalid trade ID")
+	}
+	trade, err := s.tradeRepo.GetTradeByID(tradeID)
+	if err != nil {
+		return err
+	}
+	if trade == nil {
+		return errors.New("trade not found")
+	}
+	if trade.AccountType != response.AccountType {
+		return fmt.Errorf("trade account type mismatch: expected %s, got %s", trade.AccountType, response.AccountType)
+	}
+	trade.Status = string(models.TradeStatusClosed)
+	trade.CloseTime = &time.Time{}
+	*trade.CloseTime = time.Unix(response.Timestamp, 0)
+	trade.ClosePrice = response.ClosePrice
+	trade.CloseReason = response.CloseReason
+	err = s.tradeRepo.SaveTrade(trade)
+	if err != nil {
+		return err
+	}
+	user, err := s.userRepo.GetUserByID(trade.UserID)
+	if err != nil {
+		return err
+	}
+	if user != nil {
+		profit := (response.ClosePrice - trade.EntryPrice) * trade.Volume
+		if trade.TradeType == models.TradeTypeSell {
+			profit = -profit
+		}
+		if response.AccountType == "DEMO" {
+			user.DemoMT5Balance += profit
+		} else if response.AccountType == "REAL" {
+			user.RealMT5Balance += profit
+		}
+		if err := s.userRepo.UpdateUser(user); err != nil {
+			log.Printf("Failed to update user balance: %v", err)
+		}
+	}
+	metadata := map[string]interface{}{
+		"trade_id":     response.TradeID,
+		"account_type": response.AccountType,
+		"close_price":  response.ClosePrice,
+		"close_reason": response.CloseReason,
+	}
+	s.logService.LogAction(trade.UserID, "CloseTradeResponse", "Trade closed", "", metadata)
+	s.hub.BroadcastTrade(trade)
+	return nil
+}
+
+func (s *tradeService) HandleOrderStreamResponse(response OrderStreamResponse) error {
+	for _, trade := range response.Trades {
+		if trade.AccountType != response.AccountType {
+			log.Printf("Trade account type mismatch: trade %s, response %s", trade.AccountType, response.AccountType)
+			continue
+		}
+		existingTrade, err := s.tradeRepo.GetTradeByID(trade.ID)
+		if err != nil {
+			log.Printf("Failed to check existing trade: %v", err)
+			continue
+		}
+		if existingTrade == nil {
+			err = s.tradeRepo.SaveTrade(&trade)
+			if err != nil {
+				log.Printf("Failed to save streamed trade: %v", err)
+				continue
+			}
+		} else {
+			existingTrade.Status = trade.Status
+			existingTrade.CloseTime = trade.CloseTime
+			existingTrade.ClosePrice = trade.ClosePrice
+			existingTrade.CloseReason = trade.CloseReason
+			existingTrade.AccountType = trade.AccountType
+			err = s.tradeRepo.SaveTrade(existingTrade)
+			if err != nil {
+				log.Printf("Failed to update streamed trade: %v", err)
+				continue
+			}
+		}
+		s.hub.BroadcastTrade(&trade)
+	}
+	metadata := map[string]interface{}{
+		"user_id":      response.UserID,
+		"account_type": response.AccountType,
+		"trade_count":  len(response.Trades),
+	}
+	userObjID, _ := primitive.ObjectIDFromHex(response.UserID)
+	s.logService.LogAction(userObjID, "OrderStreamResponse", "Order stream processed", "", metadata)
 	return nil
 }
 

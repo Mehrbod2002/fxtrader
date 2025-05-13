@@ -13,9 +13,12 @@ type UserAccount struct {
 	NationalID       string             `json:"national_id" bson:"national_id"`
 	Citizenship      string             `json:"citizenship" bson:"citizenship"`
 	AccountType      string             `json:"account_type" bson:"account_type"`
+	AccountTypes     []string           `json:"account_types" bson:"account_types"`
 	AccountName      string             `json:"account_name" bson:"account_name"`
 	Residence        string             `json:"residence" bson:"residence"`
 	Balance          float64            `json:"balance" bson:"balance"`
+	DemoMT5Balance   float64            `json:"demo_mt5_balance" bson:"demo_mt5_balance"`
+	RealMT5Balance   float64            `json:"real_mt5_balance" bson:"real_mt5_balance"`
 	Bonus            float64            `json:"bonus" bson:"bonus"`
 	Leverage         int                `json:"leverage" bson:"leverage"`
 	TradeType        string             `json:"trade_type" bson:"trade_type"`

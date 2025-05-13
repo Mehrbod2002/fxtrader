@@ -68,7 +68,7 @@ func main() {
 	transactionService := service.NewTransactionService(transactionRepo, logService)
 	alertService := service.NewAlertService(alertRepo, symbolRepo, logService)
 	copyTradeService := service.NewCopyTradeService(copyTradeRepo, nil, userService, logService)
-	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, logService, copyTradeService)
+	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, userRepo, logService, hub, copyTradeService)
 	if err != nil {
 		log.Fatalf("Failed to initialize trade service: %v", err)
 	}

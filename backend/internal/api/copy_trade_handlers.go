@@ -38,7 +38,7 @@ func (h *CopyTradeHandler) CreateSubscription(c *gin.Context) {
 	}
 
 	followerID := c.GetString("user_id")
-	subscription, err := h.copyTradeService.CreateSubscription(followerID, req.LeaderID, req.AllocatedAmount)
+	subscription, err := h.copyTradeService.CreateSubscription(followerID, req.LeaderID, req.AllocatedAmount, req.AccountType)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -112,5 +112,6 @@ func (h *CopyTradeHandler) GetSubscription(c *gin.Context) {
 
 type CopyTradeRequest struct {
 	LeaderID        string  `json:"leader_id" binding:"required"`
+	AccountType     string  `json:"account_type" binding:"required"`
 	AllocatedAmount float64 `json:"allocated_amount" binding:"required,gt=0"`
 }

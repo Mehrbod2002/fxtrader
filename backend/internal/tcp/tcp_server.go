@@ -23,13 +23,14 @@ const (
 type HandlerFunc func(message map[string]interface{}, conn *net.TCPConn) error
 
 type TCPServer struct {
-	listenAddr   *net.TCPAddr
-	handlers     map[string]HandlerFunc
-	handlersMu   sync.RWMutex
-	responseChan chan interface{}
-	clients      map[string]*net.TCPConn
-	clientsMu    sync.RWMutex
-	tradeService service.TradeService
+	listenAddr      *net.TCPAddr
+	handlers        map[string]HandlerFunc
+	handlersMu      sync.RWMutex
+	responseChan    chan interface{}
+	orderStreamChan chan interface{}
+	clients         map[string]*net.TCPConn
+	clientsMu       sync.RWMutex
+	tradeService    service.TradeService
 }
 
 func NewTCPServer(listenPort int) (*TCPServer, error) {
@@ -37,11 +38,13 @@ func NewTCPServer(listenPort int) (*TCPServer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve listen address: %v", err)
 	}
+
 	return &TCPServer{
-		listenAddr:   listenAddr,
-		handlers:     make(map[string]HandlerFunc),
-		responseChan: make(chan interface{}, 100),
-		clients:      make(map[string]*net.TCPConn),
+		listenAddr:      listenAddr,
+		handlers:        make(map[string]HandlerFunc),
+		responseChan:    make(chan interface{}, 100),
+		orderStreamChan: make(chan interface{}, 100),
+		clients:         make(map[string]*net.TCPConn),
 	}, nil
 }
 
@@ -57,6 +60,8 @@ func (s *TCPServer) Start(tradeService service.TradeService) error {
 	s.RegisterHandler("handshake", s.handleHandshake)
 	s.RegisterHandler("pong", s.handlePong)
 	s.RegisterHandler("disconnect", s.handleDisconnect)
+	s.RegisterHandler("close_trade_response", s.handleCloseTradeResponse)
+	s.RegisterHandler("order_stream_response", s.handleOrderStreamResponse)
 
 	listener, err := net.ListenTCP("tcp", s.listenAddr)
 	if err != nil {
@@ -117,20 +122,16 @@ func (s *TCPServer) startPingMonitor(conn *net.TCPConn, clientID string) {
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			pingMsg := map[string]interface{}{
-				"type":      "ping",
-				"timestamp": time.Now().Unix(),
-			}
-
-			if err := s.sendJSONMessage(conn, pingMsg); err != nil {
-				log.Printf("Failed to send ping to client %s: %v", clientID, err)
-				s.removeClient(clientID)
-				conn.Close()
-				return
-			}
+	for range ticker.C {
+		pingMsg := map[string]interface{}{
+			"type":      "ping",
+			"timestamp": time.Now().Unix(),
+		}
+		if err := s.sendJSONMessage(conn, pingMsg); err != nil {
+			log.Printf("Failed to send ping to client %s: %v", clientID, err)
+			s.removeClient(clientID)
+			conn.Close()
+			return
 		}
 	}
 }
@@ -197,16 +198,13 @@ func (s *TCPServer) sendJSONMessage(conn *net.TCPConn, message interface{}) erro
 		return fmt.Errorf("failed to set write deadline: %v", err)
 	}
 
-	// Marshal the message
 	data, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %v", err)
 	}
 
-	// Add newline for message framing
 	data = append(data, '\n')
 
-	// Send the message
 	_, err = conn.Write(data)
 	if err != nil {
 		return fmt.Errorf("failed to write message: %v", err)
@@ -230,7 +228,6 @@ func (s *TCPServer) handleHandshake(msg map[string]interface{}, conn *net.TCPCon
 }
 
 func (s *TCPServer) handlePong(msg map[string]interface{}, conn *net.TCPConn) error {
-	// Just log pong responses
 	log.Printf("Received pong from client")
 	return nil
 }
@@ -241,28 +238,90 @@ func (s *TCPServer) handleDisconnect(msg map[string]interface{}, conn *net.TCPCo
 	return nil
 }
 
-// SendTradeRequest sends a trade request to MetaTrader
+func (s *TCPServer) handleCloseTradeResponse(msg map[string]interface{}, conn *net.TCPConn) error {
+	var response service.CloseTradeResponse
+	data, err := json.Marshal(msg)
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal close trade response: %v", err)
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal close trade response: %v", err)
+	}
+
+	s.responseChan <- response
+	return nil
+}
+
+func (s *TCPServer) handleOrderStreamResponse(msg map[string]interface{}, conn *net.TCPConn) error {
+	var response service.OrderStreamResponse
+	data, err := json.Marshal(msg)
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal order stream response: %v", err)
+	}
+
+	if err := json.Unmarshal(data, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal order stream response: %v", err)
+	}
+	s.orderStreamChan <- response
+	return nil
+}
+
 func (s *TCPServer) SendTradeRequest(tradeRequest map[string]interface{}) error {
-	// Broadcast to all MT5 clients
 	s.clientsMu.RLock()
 	defer s.clientsMu.RUnlock()
-
 	if len(s.clients) == 0 {
 		return fmt.Errorf("no active MT5 connections available")
 	}
-
 	var lastErr error
 	for clientID, conn := range s.clients {
 		if err := s.sendJSONMessage(conn, tradeRequest); err != nil {
 			log.Printf("Failed to send trade request to client %s: %v", clientID, err)
 			lastErr = err
 		} else {
-			// Successfully sent to at least one client
-			log.Printf("Trade request sent to client %s", clientID)
+			log.Printf("Trade request sent to client %s (account_type: %v)", clientID, tradeRequest["account_type"])
 			return nil
 		}
 	}
+	return lastErr
+}
 
+func (s *TCPServer) SendCloseTradeRequest(closeRequest map[string]interface{}) error {
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+	if len(s.clients) == 0 {
+		return fmt.Errorf("no active MT5 connections available")
+	}
+	var lastErr error
+	for clientID, conn := range s.clients {
+		if err := s.sendJSONMessage(conn, closeRequest); err != nil {
+			log.Printf("Failed to send close trade request to client %s: %v", clientID, err)
+			lastErr = err
+		} else {
+			log.Printf("Close trade request sent to client %s (account_type: %v)", clientID, closeRequest["account_type"])
+			return nil
+		}
+	}
+	return lastErr
+}
+
+func (s *TCPServer) SendOrderStreamRequest(streamRequest map[string]interface{}) error {
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+	if len(s.clients) == 0 {
+		return fmt.Errorf("no active MT5 connections available")
+	}
+	var lastErr error
+	for clientID, conn := range s.clients {
+		if err := s.sendJSONMessage(conn, streamRequest); err != nil {
+			log.Printf("Failed to send order stream request to client %s: %v", clientID, err)
+			lastErr = err
+		} else {
+			log.Printf("Order stream request sent to client %s (account_type: %v)", clientID, streamRequest["account_type"])
+			return nil
+		}
+	}
 	return lastErr
 }
 

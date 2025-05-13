@@ -11,10 +11,10 @@ import (
 )
 
 type CopyTradeService interface {
-	CreateSubscription(followerID, leaderID string, allocatedAmount float64) (*models.CopyTradeSubscription, error)
+	CreateSubscription(followerID, leaderID string, allocatedAmount float64, accountType string) (*models.CopyTradeSubscription, error)
 	GetSubscription(id string) (*models.CopyTradeSubscription, error)
 	GetSubscriptionsByFollowerID(followerID string) ([]*models.CopyTradeSubscription, error)
-	MirrorTrade(leaderTrade *models.TradeHistory) error
+	MirrorTrade(leaderTrade *models.TradeHistory, accountType string) error
 	SetTradeService(tradeService TradeService)
 }
 
@@ -38,7 +38,7 @@ func NewCopyTradeService(copyTradeRepo repository.CopyTradeRepository, tradeServ
 	}
 }
 
-func (s *copyTradeService) CreateSubscription(followerID, leaderID string, allocatedAmount float64) (*models.CopyTradeSubscription, error) {
+func (s *copyTradeService) CreateSubscription(followerID, leaderID string, allocatedAmount float64, accountType string) (*models.CopyTradeSubscription, error) {
 	if followerID == leaderID {
 		return nil, errors.New("cannot follow yourself")
 	}
@@ -55,7 +55,7 @@ func (s *copyTradeService) CreateSubscription(followerID, leaderID string, alloc
 		return nil, errors.New("leader not found")
 	}
 
-	followerBalance, err := s.tradeService.RequestBalance(followerID)
+	followerBalance, err := s.tradeService.RequestBalance(followerID, accountType)
 	if err != nil {
 		return nil, errors.New("failed to fetch follower balance")
 	}
@@ -98,13 +98,13 @@ func (s *copyTradeService) GetSubscriptionsByFollowerID(followerID string) ([]*m
 	return s.copyTradeRepo.GetSubscriptionsByFollowerID(followerID)
 }
 
-func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory) error {
+func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory, accountType string) error {
 	subscriptions, err := s.copyTradeRepo.GetActiveSubscriptionsByLeaderID(leaderTrade.UserID.Hex())
 	if err != nil {
 		return err
 	}
 
-	leaderBalance, err := s.tradeService.RequestBalance(leaderTrade.UserID.Hex())
+	leaderBalance, err := s.tradeService.RequestBalance(leaderTrade.UserID.Hex(), accountType)
 	if err != nil {
 		return errors.New("failed to fetch leader balance")
 	}
@@ -115,7 +115,7 @@ func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory) error {
 	volumeRatio := leaderTrade.Volume / leaderBalance
 
 	for _, sub := range subscriptions {
-		followerBalance, err := s.tradeService.RequestBalance(sub.FollowerID)
+		followerBalance, err := s.tradeService.RequestBalance(sub.FollowerID, accountType)
 		if err != nil {
 			continue
 		}
@@ -124,6 +124,7 @@ func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory) error {
 		followerTrade, err := s.tradeService.PlaceTrade(
 			sub.FollowerID,
 			leaderTrade.Symbol,
+			accountType,
 			leaderTrade.TradeType,
 			leaderTrade.OrderType,
 			leaderTrade.Leverage,
