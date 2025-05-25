@@ -1,60 +1,78 @@
 package tcp
 
 import (
-	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net"
+	"net/http"
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/mehrbod2002/fxtrader/internal/service"
 )
 
 const (
-	pingInterval   = 20 * time.Second
-	readTimeout    = 30 * time.Second
-	writeTimeout   = 10 * time.Second
-	maxMessageSize = 1024 * 1024
+	pingInterval            = 30 * time.Second
+	readTimeout             = 120 * time.Second
+	writeTimeout            = 10 * time.Second
+	maxMessageSize          = 1024 * 1024
+	reconnectBackoffInitial = 2 * time.Second
+	reconnectBackoffMax     = 30 * time.Second
+	maxRetries              = 10
+	retryDelay              = 10 * time.Second
+	maxMissedPongs          = 5
 )
 
-type HandlerFunc func(message map[string]interface{}, conn *net.TCPConn) error
+type HandlerFunc func(message map[string]interface{}, conn *websocket.Conn) error
 
-type TCPServer struct {
-	listenAddr      *net.TCPAddr
+type WebSocketServer struct {
+	listenAddr      string
 	handlers        map[string]HandlerFunc
 	handlersMu      sync.RWMutex
 	responseChan    chan interface{}
 	orderStreamChan chan interface{}
-	clients         map[string]*net.TCPConn
+	clients         map[string]*Client
 	clientsMu       sync.RWMutex
 	tradeService    service.TradeService
+	reconnectMu     sync.Mutex
+	ctx             context.Context
+	cancel          context.CancelFunc
+	upgrader        websocket.Upgrader
 }
 
-func NewTCPServer(listenPort int) (*TCPServer, error) {
-	listenAddr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", listenPort))
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve listen address: %v", err)
-	}
+type Client struct {
+	conn       *websocket.Conn
+	cancelPing context.CancelFunc
+	clientID   string
+}
 
-	return &TCPServer{
-		listenAddr:      listenAddr,
+func NewWebSocketServer(listenPort int) (*WebSocketServer, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &WebSocketServer{
+		listenAddr:      fmt.Sprintf(":%d", listenPort),
 		handlers:        make(map[string]HandlerFunc),
 		responseChan:    make(chan interface{}, 100),
 		orderStreamChan: make(chan interface{}, 100),
-		clients:         make(map[string]*net.TCPConn),
+		clients:         make(map[string]*Client),
+		ctx:             ctx,
+		cancel:          cancel,
+		upgrader: websocket.Upgrader{
+			ReadBufferSize:  8192,
+			WriteBufferSize: 8192,
+			CheckOrigin:     func(r *http.Request) bool { return true },
+		},
 	}, nil
 }
 
-func (s *TCPServer) RegisterHandler(msgType string, handler HandlerFunc) {
+func (s *WebSocketServer) RegisterHandler(msgType string, handler HandlerFunc) {
 	s.handlersMu.Lock()
 	defer s.handlersMu.Unlock()
 	s.handlers[msgType] = handler
 }
 
-func (s *TCPServer) Start(tradeService service.TradeService) error {
+func (s *WebSocketServer) Start(tradeService service.TradeService) error {
 	s.tradeService = tradeService
 
 	s.RegisterHandler("handshake", s.handleHandshake)
@@ -63,122 +81,174 @@ func (s *TCPServer) Start(tradeService service.TradeService) error {
 	s.RegisterHandler("close_trade_response", s.handleCloseTradeResponse)
 	s.RegisterHandler("order_stream_response", s.handleOrderStreamResponse)
 
-	listener, err := net.ListenTCP("tcp", s.listenAddr)
-	if err != nil {
-		return fmt.Errorf("failed to start TCP server: %v", err)
-	}
-	log.Printf("TCP server listening on %s", s.listenAddr.String())
+	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := s.upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("Failed to upgrade to WebSocket: %v", err)
+			return
+		}
+		log.Printf("New connection from %s, awaiting handshake", conn.RemoteAddr().String())
+		go s.handleConnection(conn, s.ctx)
+	})
 
+	log.Printf("WebSocket server listening on %s", s.listenAddr)
 	go func() {
-		defer listener.Close()
-		for {
-			conn, err := listener.AcceptTCP()
-			if err != nil {
-				log.Printf("Failed to accept TCP connection: %v", err)
-				continue
-			}
-
-			conn.SetKeepAlive(true)
-			conn.SetKeepAlivePeriod(30 * time.Second)
-			conn.SetReadBuffer(8192)
-			conn.SetWriteBuffer(8192)
-
-			clientID := conn.RemoteAddr().String()
-			s.addClient(clientID, conn)
-
-			log.Printf("New connection from %s", clientID)
-
-			if s.tradeService != nil {
-				s.tradeService.RegisterMT5Connection(conn)
-			}
-
-			go s.handleConnection(conn, clientID)
-			go s.startPingMonitor(conn, clientID)
+		if err := http.ListenAndServe(s.listenAddr, nil); err != nil {
+			log.Printf("WebSocket server failed: %v", err)
 		}
 	}()
 	return nil
 }
 
-func (s *TCPServer) addClient(clientID string, conn *net.TCPConn) {
+func (s *WebSocketServer) addClient(clientID string, conn *websocket.Conn, cancelPing context.CancelFunc) {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
-	if oldConn, exists := s.clients[clientID]; exists {
+	if oldClient, exists := s.clients[clientID]; exists {
 		log.Printf("Replacing existing connection for client %s", clientID)
-		oldConn.Close()
+		disconnectMsg := map[string]interface{}{
+			"type":      "disconnect",
+			"reason":    "New connection established",
+			"timestamp": time.Now().Unix(),
+		}
+		s.sendJSONMessage(oldClient.conn, disconnectMsg)
+		oldClient.conn.Close()
+		oldClient.cancelPing()
 	}
 
-	s.clients[clientID] = conn
+	s.clients[clientID] = &Client{conn: conn, cancelPing: cancelPing, clientID: clientID}
+	log.Printf("Added client %s to connection pool", clientID)
+
+	if s.tradeService != nil {
+		s.tradeService.RegisterMT5Connection(conn)
+	}
 }
 
-func (s *TCPServer) removeClient(clientID string) {
+func (s *WebSocketServer) removeClient(clientID string) {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
-	delete(s.clients, clientID)
-	log.Printf("Removed client %s from connection pool", clientID)
+
+	if client, exists := s.clients[clientID]; exists {
+		client.cancelPing()
+		client.conn.Close()
+		delete(s.clients, clientID)
+		log.Printf("Removed client %s from connection pool", clientID)
+	}
 }
 
-func (s *TCPServer) startPingMonitor(conn *net.TCPConn, clientID string) {
+func (s *WebSocketServer) isClientConnected(clientID string) bool {
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+	_, exists := s.clients[clientID]
+	return exists
+}
+
+func (s *WebSocketServer) startPingMonitor(conn *websocket.Conn, clientID string, ctx context.Context) {
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		pingMsg := map[string]interface{}{
-			"type":      "ping",
-			"timestamp": time.Now().Unix(),
-		}
-		if err := s.sendJSONMessage(conn, pingMsg); err != nil {
-			log.Printf("Failed to send ping to client %s: %v", clientID, err)
-			s.removeClient(clientID)
-			conn.Close()
-			return
-		}
-	}
-}
-
-func (s *TCPServer) handleConnection(conn *net.TCPConn, clientID string) {
-	defer func() {
-		conn.Close()
-		s.removeClient(clientID)
-		log.Printf("Connection closed for client %s", clientID)
-	}()
-
-	reader := bufio.NewReaderSize(conn, 8192)
+	missedPongs := 0
 
 	for {
-		if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
-			log.Printf("Failed to set read deadline: %v", err)
+		select {
+		case <-ctx.Done():
+			log.Printf("Ping monitor stopped for client %s", clientID)
 			return
-		}
-
-		message, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				log.Printf("Client %s closed connection", clientID)
-			} else if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				log.Printf("Read timeout for client %s, continuing", clientID)
-				continue
-			} else {
-				log.Printf("Error reading from client %s: %v", clientID, err)
+		case <-ticker.C:
+			if !s.isClientConnected(clientID) {
+				log.Printf("Client %s not found in connection pool, stopping ping monitor", clientID)
+				return
 			}
-			return
-		}
 
-		if err := s.processMessage(message, conn); err != nil {
-			log.Printf("Error processing message from client %s: %v", clientID, err)
+			pingMsg := map[string]interface{}{
+				"type":      "ping",
+				"timestamp": time.Now().Unix(),
+			}
+			if err := s.sendJSONMessage(conn, pingMsg); err != nil {
+				log.Printf("Failed to send ping to client %s: %v", clientID, err)
+				missedPongs++
+				if missedPongs >= maxMissedPongs {
+					log.Printf("Client %s missed %d pongs, closing connection", clientID, maxMissedPongs)
+					s.removeClient(clientID)
+					return
+				}
+				continue
+			}
+			log.Printf("Sent ping to client %s", clientID)
+			missedPongs = 0
 		}
 	}
 }
 
-func (s *TCPServer) processMessage(message string, conn *net.TCPConn) error {
+func (s *WebSocketServer) handlePong(msg map[string]interface{}, conn *websocket.Conn) error {
+	log.Printf("Received pong from client %s", conn.RemoteAddr().String())
+	return nil
+}
+
+func (s *WebSocketServer) handleConnection(conn *websocket.Conn, ctx context.Context) {
+	defer conn.Close()
+
+	conn.SetReadLimit(maxMessageSize)
+	tempClientID := conn.RemoteAddr().String()
+	retryCount := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Connection closed for %s due to server shutdown", tempClientID)
+			return
+		default:
+			if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+				log.Printf("Failed to set read deadline for %s: %v", tempClientID, err)
+				return
+			}
+
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+					log.Printf("WebSocket closed normally for %s", tempClientID)
+					return
+				}
+				retryCount++
+				log.Printf("Read error from %s, retry %d/%d: %v", tempClientID, retryCount, maxRetries, err)
+				time.Sleep(retryDelay)
+				if retryCount >= maxRetries {
+					log.Printf("Max retries (%d) reached for %s", maxRetries, tempClientID)
+					return
+				}
+				continue
+			}
+			retryCount = 0
+
+			if err := s.processMessage(message, conn, &tempClientID); err != nil {
+				log.Printf("Error processing message from %s: %v", tempClientID, err)
+			}
+		}
+	}
+}
+
+func (s *WebSocketServer) processMessage(message []byte, conn *websocket.Conn, tempClientID *string) error {
 	var msg map[string]interface{}
-	if err := json.Unmarshal([]byte(message), &msg); err != nil {
+	if err := json.Unmarshal(message, &msg); err != nil {
 		return fmt.Errorf("failed to decode JSON: %v", err)
 	}
 
 	msgType, ok := msg["type"].(string)
 	if !ok {
 		return fmt.Errorf("missing or invalid 'type' field in message")
+	}
+
+	if msgType == "handshake" {
+		clientID, ok := msg["client_id"].(string)
+		if !ok || clientID == "" {
+			return fmt.Errorf("missing or invalid 'client_id' in handshake")
+		}
+		*tempClientID = clientID
+		ctx, cancel := context.WithCancel(s.ctx)
+		s.addClient(clientID, conn, cancel)
+		go s.startPingMonitor(conn, clientID, ctx)
+		log.Printf("Handshake successful for client %s", clientID)
+		return nil
 	}
 
 	s.handlersMu.RLock()
@@ -193,27 +263,20 @@ func (s *TCPServer) processMessage(message string, conn *net.TCPConn) error {
 	return handler(msg, conn)
 }
 
-func (s *TCPServer) sendJSONMessage(conn *net.TCPConn, message interface{}) error {
+func (s *WebSocketServer) sendJSONMessage(conn *websocket.Conn, msg interface{}) error {
 	if err := conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
 		return fmt.Errorf("failed to set write deadline: %v", err)
 	}
 
-	data, err := json.Marshal(message)
+	data, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %v", err)
 	}
 
-	data = append(data, '\n')
-
-	_, err = conn.Write(data)
-	if err != nil {
-		return fmt.Errorf("failed to write message: %v", err)
-	}
-
-	return nil
+	return conn.WriteMessage(websocket.TextMessage, data)
 }
 
-func (s *TCPServer) handleHandshake(msg map[string]interface{}, conn *net.TCPConn) error {
+func (s *WebSocketServer) handleHandshake(msg map[string]interface{}, conn *websocket.Conn) error {
 	log.Printf("Received handshake from client: %v", msg)
 
 	response := map[string]interface{}{
@@ -227,21 +290,18 @@ func (s *TCPServer) handleHandshake(msg map[string]interface{}, conn *net.TCPCon
 	return s.sendJSONMessage(conn, response)
 }
 
-func (s *TCPServer) handlePong(msg map[string]interface{}, conn *net.TCPConn) error {
-	log.Printf("Received pong from client")
-	return nil
-}
-
-func (s *TCPServer) handleDisconnect(msg map[string]interface{}, conn *net.TCPConn) error {
+func (s *WebSocketServer) handleDisconnect(msg map[string]interface{}, conn *websocket.Conn) error {
 	reason, _ := msg["reason"].(string)
-	log.Printf("Client initiated disconnect. Reason: %s", reason)
+	clientID := conn.RemoteAddr().String()
+	log.Printf("Client %s initiated disconnect. Reason: %s", clientID, reason)
+	s.removeClient(clientID)
+	conn.Close()
 	return nil
 }
 
-func (s *TCPServer) handleCloseTradeResponse(msg map[string]interface{}, conn *net.TCPConn) error {
+func (s *WebSocketServer) handleCloseTradeResponse(msg map[string]interface{}, conn *websocket.Conn) error {
 	var response service.CloseTradeResponse
 	data, err := json.Marshal(msg)
-
 	if err != nil {
 		return fmt.Errorf("failed to marshal close trade response: %v", err)
 	}
@@ -253,14 +313,12 @@ func (s *TCPServer) handleCloseTradeResponse(msg map[string]interface{}, conn *n
 	return nil
 }
 
-func (s *TCPServer) handleOrderStreamResponse(msg map[string]interface{}, conn *net.TCPConn) error {
+func (s *WebSocketServer) handleOrderStreamResponse(msg map[string]interface{}, conn *websocket.Conn) error {
 	var response service.OrderStreamResponse
 	data, err := json.Marshal(msg)
-
 	if err != nil {
 		return fmt.Errorf("failed to marshal order stream response: %v", err)
 	}
-
 	if err := json.Unmarshal(data, &response); err != nil {
 		return fmt.Errorf("failed to unmarshal order stream response: %v", err)
 	}
@@ -268,15 +326,15 @@ func (s *TCPServer) handleOrderStreamResponse(msg map[string]interface{}, conn *
 	return nil
 }
 
-func (s *TCPServer) SendTradeRequest(tradeRequest map[string]interface{}) error {
+func (s *WebSocketServer) SendTradeRequest(tradeRequest map[string]interface{}) error {
 	s.clientsMu.RLock()
 	defer s.clientsMu.RUnlock()
 	if len(s.clients) == 0 {
 		return fmt.Errorf("no active MT5 connections available")
 	}
 	var lastErr error
-	for clientID, conn := range s.clients {
-		if err := s.sendJSONMessage(conn, tradeRequest); err != nil {
+	for clientID, client := range s.clients {
+		if err := s.sendJSONMessage(client.conn, tradeRequest); err != nil {
 			log.Printf("Failed to send trade request to client %s: %v", clientID, err)
 			lastErr = err
 		} else {
@@ -287,15 +345,15 @@ func (s *TCPServer) SendTradeRequest(tradeRequest map[string]interface{}) error 
 	return lastErr
 }
 
-func (s *TCPServer) SendCloseTradeRequest(closeRequest map[string]interface{}) error {
+func (s *WebSocketServer) SendCloseTradeRequest(closeRequest map[string]interface{}) error {
 	s.clientsMu.RLock()
 	defer s.clientsMu.RUnlock()
 	if len(s.clients) == 0 {
 		return fmt.Errorf("no active MT5 connections available")
 	}
 	var lastErr error
-	for clientID, conn := range s.clients {
-		if err := s.sendJSONMessage(conn, closeRequest); err != nil {
+	for clientID, client := range s.clients {
+		if err := s.sendJSONMessage(client.conn, closeRequest); err != nil {
 			log.Printf("Failed to send close trade request to client %s: %v", clientID, err)
 			lastErr = err
 		} else {
@@ -306,15 +364,15 @@ func (s *TCPServer) SendCloseTradeRequest(closeRequest map[string]interface{}) e
 	return lastErr
 }
 
-func (s *TCPServer) SendOrderStreamRequest(streamRequest map[string]interface{}) error {
+func (s *WebSocketServer) SendOrderStreamRequest(streamRequest map[string]interface{}) error {
 	s.clientsMu.RLock()
 	defer s.clientsMu.RUnlock()
 	if len(s.clients) == 0 {
 		return fmt.Errorf("no active MT5 connections available")
 	}
 	var lastErr error
-	for clientID, conn := range s.clients {
-		if err := s.sendJSONMessage(conn, streamRequest); err != nil {
+	for clientID, client := range s.clients {
+		if err := s.sendJSONMessage(client.conn, streamRequest); err != nil {
 			log.Printf("Failed to send order stream request to client %s: %v", clientID, err)
 			lastErr = err
 		} else {
@@ -325,14 +383,17 @@ func (s *TCPServer) SendOrderStreamRequest(streamRequest map[string]interface{})
 	return lastErr
 }
 
-func (s *TCPServer) Stop() {
+func (s *WebSocketServer) Stop() {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
-	for clientID, conn := range s.clients {
+	for clientID, client := range s.clients {
 		log.Printf("Closing connection for client %s", clientID)
-		conn.Close()
+		client.conn.Close()
 	}
 
-	s.clients = make(map[string]*net.TCPConn)
+	for k := range s.clients {
+		delete(s.clients, k)
+	}
+	s.cancel()
 }

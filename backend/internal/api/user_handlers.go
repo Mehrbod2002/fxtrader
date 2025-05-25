@@ -63,6 +63,7 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 		Citizenship:      req.Citizenship,
 		NationalID:       req.NationalID,
 		AccountType:      "user",
+		AccountTypes:     []string{"REAL", "DEMO"},
 		RegistrationDate: time.Now().Format(time.RFC3339),
 	}
 

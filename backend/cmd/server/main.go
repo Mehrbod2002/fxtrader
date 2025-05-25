@@ -76,7 +76,7 @@ func main() {
 
 	copyTradeService.SetTradeService(tradeService)
 
-	tcpServer, err := tcp.NewTCPServer(cfg.ListenPort)
+	tcpServer, err := tcp.NewWebSocketServer(cfg.ListenPort)
 	if err != nil {
 		log.Fatalf("Failed to initialize TCP server: %v", err)
 	}
