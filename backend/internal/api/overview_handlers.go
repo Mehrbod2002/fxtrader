@@ -64,6 +64,13 @@ func (h *OverviewHandler) GetOverview(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve trade data"})
 		return
 	}
+
+	allSymbols, err := h.symbolService.GetAllSymbols()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve symbbols"})
+		return
+	}
+
 	totalTrades := len(trades)
 	pendingTrades := 0
 	symbolCounts := make(map[string]int)
@@ -111,6 +118,7 @@ func (h *OverviewHandler) GetOverview(c *gin.Context) {
 		TotalTransactions:   totalTransactions,
 		PendingTransactions: pendingTransactions,
 		TopSymbols:          topSymbols,
+		Symbols:             len(allSymbols),
 	}
 
 	adminID := c.GetString("user_id")
@@ -135,6 +143,7 @@ type OverviewResponse struct {
 	TotalTransactions   int           `json:"total_transactions"`
 	PendingTransactions int           `json:"pending_transactions"`
 	TopSymbols          []SymbolUsage `json:"top_symbols"`
+	Symbols             int           `json:"symbols"`
 }
 
 type SymbolUsage struct {
