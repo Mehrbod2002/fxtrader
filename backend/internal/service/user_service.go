@@ -14,6 +14,7 @@ type UserService interface {
 	SignupUser(user *models.UserAccount) error
 	GetUser(id string) (*models.UserAccount, error)
 	GetUserByTelegramID(telegramID string) (*models.UserAccount, error)
+	GetUsersByLeaderStatus(isLeader bool) ([]*models.UserAccount, error)
 	GetAllUsers() ([]*models.UserAccount, error)
 	UpdateUser(user *models.UserAccount) error
 }
@@ -24,6 +25,10 @@ type userService struct {
 
 func NewUserService(userRepo repository.UserRepository) UserService {
 	return &userService{userRepo: userRepo}
+}
+
+func (s *userService) GetUsersByLeaderStatus(isLeader bool) ([]*models.UserAccount, error) {
+	return s.userRepo.GetUsersByLeaderStatus(isLeader)
 }
 
 func (s *userService) UpdateUser(user *models.UserAccount) error {

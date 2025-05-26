@@ -16,9 +16,23 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertService, copyTradeService service.CopyTradeService, priceService service.PriceService, adminRepo repository.AdminRepository, userService service.UserService, symbolService service.SymbolService, logService service.LogService, ruleService service.RuleService, tradeService service.TradeService, transactionService service.TransactionService, wsHandler *ws.WebSocketHandler, baseURL string) {
-	// r.SetTrustedProxies([]string{})
-
+func SetupRoutes(
+	r *gin.Engine,
+	cfg *config.Config,
+	alertService service.AlertService,
+	copyTradeService service.CopyTradeService,
+	priceService service.PriceService,
+	adminRepo repository.AdminRepository,
+	userService service.UserService,
+	symbolService service.SymbolService,
+	logService service.LogService,
+	ruleService service.RuleService,
+	tradeService service.TradeService,
+	transactionService service.TransactionService,
+	wsHandler *ws.WebSocketHandler,
+	leaderRequestService service.LeaderRequestService,
+	baseURL string,
+) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "healthy"})
 	})
@@ -42,6 +56,7 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertSe
 	adminHandler := NewAdminHandler(adminRepo, cfg, userService)
 	alertHandler := NewAlertHandler(alertService, logService)
 	copyTradeHandler := NewCopyTradeHandler(copyTradeService, logService)
+	leaderRequestHandler := NewLeaderRequestHandler(leaderRequestService, logService)
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -77,6 +92,8 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertSe
 		v1.GET("/symbols/:id", symbolHandler.GetSymbol)
 		v1.GET("/rules", ruleHandler.GetAllRules)
 		v1.POST("/admin/login", adminHandler.AdminLogin)
+		v1.POST("/leader-requests", middleware.UserAuthMiddleware(userService), leaderRequestHandler.CreateLeaderRequest)
+		v1.GET("/copy-trade-leaders", middleware.UserAuthMiddleware(userService), leaderRequestHandler.GetApprovedLeaders)
 
 		user := v1.Group("/").Use(middleware.UserAuthMiddleware(userService))
 		{
@@ -116,6 +133,9 @@ func SetupRoutes(r *gin.Engine, cfg *config.Config, alertService service.AlertSe
 			admin.GET("/transactions/:id", transactionHandler.GetTransactionByID)
 			admin.PUT("/transactions/:id", transactionHandler.ReviewTransaction)
 			admin.PUT("/users/activation", adminHandler.UpdateUserActivation)
+			admin.POST("/leader-requests/:id/approve", leaderRequestHandler.ApproveLeaderRequest)
+			admin.POST("/leader-requests/:id/deny", leaderRequestHandler.DenyLeaderRequest)
+			admin.GET("/leader-requests", leaderRequestHandler.GetPendingLeaderRequests)
 		}
 	}
 

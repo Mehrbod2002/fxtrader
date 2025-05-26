@@ -18,6 +18,7 @@ type UserRepository interface {
 	GetUserByID(id primitive.ObjectID) (*models.UserAccount, error)
 	GetUserByTelegramID(telegramID string) (*models.UserAccount, error)
 	GetAllUsers() ([]*models.UserAccount, error)
+	GetUsersByLeaderStatus(isLeader bool) ([]*models.UserAccount, error)
 	UpdateUser(user *models.UserAccount) error
 }
 
@@ -88,6 +89,22 @@ func (r *MongoUserRepository) GetAllUsers() ([]*models.UserAccount, error) {
 	defer cursor.Close(ctx)
 
 	var users []*models.UserAccount
+	if err := cursor.All(ctx, &users); err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
+func (r *MongoUserRepository) GetUsersByLeaderStatus(isLeader bool) ([]*models.UserAccount, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var users []*models.UserAccount
+	cursor, err := r.collection.Find(ctx, bson.M{"is_copy_trade_leader": isLeader})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
 	if err := cursor.All(ctx, &users); err != nil {
 		return nil, err
 	}

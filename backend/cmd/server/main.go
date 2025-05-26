@@ -55,6 +55,7 @@ func main() {
 	adminRepo := repository.NewAdminRepository(client, "fxtrader", "admins_fxtrader")
 	alertRepo := repository.NewAlertRepository(client, "fxtrader", "alerts")
 	copyTradeRepo := repository.NewCopyTradeRepository(client, "fxtrader", "copy_trades")
+	leaderRequestRepo := repository.NewLeaderRequestRepository(client, "fxtrader", "leader_requests")
 
 	if err := config.EnsureAdminUser(adminRepo, cfg.AdminUser, cfg.AdminPass); err != nil {
 		log.Fatalf("Failed to ensure admin user: %v", err)
@@ -73,6 +74,7 @@ func main() {
 		log.Fatalf("Failed to initialize trade service: %v", err)
 	}
 	priceService := service.NewPriceService(priceRepo, hub, alertService)
+	leaderRequestService := service.NewLeaderRequestService(leaderRequestRepo, userService, logService)
 
 	copyTradeService.SetTradeService(tradeService)
 
@@ -99,7 +101,7 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 
-	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, cfg.BaseURL)
+	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, leaderRequestService, cfg.BaseURL)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
 	log.Printf("Starting server on http://%s", addr)
