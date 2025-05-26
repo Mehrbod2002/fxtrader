@@ -75,7 +75,6 @@ func (h *LeaderRequestHandler) CreateLeaderRequest(c *gin.Context) {
 // @Failure 500 {object} map[string]string "Failed to approve leader request"
 // @Router /leader-requests/{id}/approve [post]
 func (h *LeaderRequestHandler) ApproveLeaderRequest(c *gin.Context) {
-	// Ensure admin access (implement middleware or check role)
 	if !c.GetBool("is_admin") {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Admin access required"})
 		return
@@ -176,7 +175,7 @@ func (h *LeaderRequestHandler) GetPendingLeaderRequests(c *gin.Context) {
 // @Tags CopyTrading
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {array} models.User
+// @Success 200 {array} models.UserAccount
 // @Failure 500 {object} map[string]string "Failed to retrieve leaders"
 // @Router /copy-trade-leaders [get]
 func (h *LeaderRequestHandler) GetApprovedLeaders(c *gin.Context) {
