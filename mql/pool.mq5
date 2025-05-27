@@ -6,11 +6,11 @@
 #include <Frame.mqh>
 #include <Socket.mqh>
 #include <WebsocketClient.mqh>
-#include <Lib\Json.mqh>      // CJAVal-based Json.mqh
+#include <Lib\Json.mqh>
 
-// Input parameters
-input string InpWebSocketURL = "127.0.0.1";              // WebSocket server URL
-input int InputPort = 7003;                              // WebSocket server port
+input string InpWebSocketURL = "localhost";
+input string Path = "/ws";// WebSocket path
+input int InputPort = 7003;// WebSocket server port
 input string InpClientID = "MT5_Client_1";               // Unique client ID
 input int InpPingInterval = 30;                          // Ping interval (seconds)
 input int InpReconnectDelay = 2;                         // Initial reconnect delay (seconds)
@@ -18,7 +18,6 @@ input int InpMaxReconnectAttempts = 5;                   // Max reconnect attemp
 input double InpSpreadTolerance = 0.0001;                // Spread tolerance for matching
 input int InpTimerInterval = 500;                        // Timer interval (ms)
 
-// Trade pool structure
 struct PoolTrade {
    string trade_id;
    string user_id;
@@ -36,7 +35,6 @@ struct PoolTrade {
    ulong ticket;
 };
 
-// Trade pool manager class
 class CTradePoolManager {
 public:
    PoolTrade pool[];
@@ -512,6 +510,9 @@ public:
    }
 
    void QueueMessage(string message) {
+      if (ArraySize(message_queue) > 1000) {
+         ArrayRemove(message_queue, 0, 1);
+      }
       ArrayResize(message_queue, ArraySize(message_queue) + 1);
       message_queue[ArraySize(message_queue) - 1] = message;
       Print("Queued message: ", message);
@@ -520,7 +521,7 @@ public:
 
 class CWebSocketManager {
 private:
-   CWebSocketClient ws; // WebSocket client instance
+   CWebSocketClient ws;
    datetime last_ping_sent;
    datetime last_reconnect_attempt;
    int reconnect_attempts;
@@ -538,24 +539,45 @@ private:
 public:
    CWebSocketManager() : last_ping_sent(0), last_reconnect_attempt(0), reconnect_attempts(0) {}
 
-   bool Initialize(const string url, const int port) {
-      if (!ws.Connect(url, port, 10000)) {
-         Print("Failed to connect to WebSocket server: ", url);
-         for (int i = 0; i < InpMaxReconnectAttempts; i++) {
-            Sleep(InpReconnectDelay * 1000);
-            if (ws.Connect(url, port, 10000)) {
-               if (SendHandshake()) {
-                  Print("Connected to WebSocket server: ", url);
-                  return true;
-               }
-            }
-            if (i == InpMaxReconnectAttempts - 1) {
-               Alert("Failed to initialize WebSocket after ", InpMaxReconnectAttempts, " attempts");
-               return false;
+   bool Initialize(const string url, const string path, const int port) {
+      string full_url = "ws://" + url + ":" + IntegerToString(port) + path; // e.g., "ws://45.82.64.55:7003/ws"
+      Print(full_url);
+   Print("Attempting to connect to WebSocket server: ", full_url, " on port: ", port);
+   ResetLastError();
+   if (!ws.Connect(full_url, port, 10000, false, true)) // Pass full_url with protocol
+   {
+      int error_code = GetLastError();
+      Print("Failed to connect to WebSocket server: ", full_url, 
+            ", Client state: ", EnumToString(ws.ClientState()), 
+            ", Error code: ", error_code);
+      for (int i = 0; i < InpMaxReconnectAttempts; i++)
+      {
+         Sleep(InpReconnectDelay * 1000);
+         if (ws.Connect(full_url, port, 5000, false, false))
+         {
+            if (SendHandshake())
+            {
+               Print("Connected to WebSocket server: ", full_url);
+               return true;
             }
          }
+         if (i == InpMaxReconnectAttempts - 1)
+         {
+            Alert("Failed to initialize WebSocket after ", InpMaxReconnectAttempts, " attempts");
+            return false;
+         }
       }
-      return true;
+      return false;
+   }
+   else
+   {
+      if (SendHandshake())
+      {
+         Print("Connected to WebSocket server: ", full_url);
+         return true;
+      }
+   }
+   return false;
    }
 
    bool SendHandshake() {
@@ -697,7 +719,7 @@ public:
          reconnect_attempts++;
          Print("Connection lost, attempting reconnect (attempt ", reconnect_attempts, ")...");
 
-         if (ws.Connect(InpWebSocketURL, InputPort, 10000)) {
+         if (ws.Connect(InpWebSocketURL, InputPort, true)) {
             if (SendHandshake()) {
                Print("Successfully reconnected to ", InpWebSocketURL);
                reconnect_attempts = 0;
@@ -735,9 +757,9 @@ CTradePoolManager pool_manager;
 CWebSocketManager ws_manager;
 CWebSocketClient ws;
 
-// Initialization
+// Initializationff
 int OnInit() {
-   if (!ws_manager.Initialize(InpWebSocketURL, InputPort)) return INIT_FAILED;
+   if (!ws_manager.Initialize(InpWebSocketURL, Path, InputPort)) return INIT_FAILED;
    if (!EventSetMillisecondTimer(InpTimerInterval)) {
       Print("Failed to set timer. Error code: ", GetLastError());
       ws_manager.Deinitialize();
