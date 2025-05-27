@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/mehrbod2002/fxtrader/internal/service"
@@ -49,7 +50,9 @@ func (h *CopyTradeHandler) CreateSubscription(c *gin.Context) {
 		"follower_id":     followerID,
 		"leader_id":       req.LeaderID,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "CreateCopySubscription", "Copy trade subscription created", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "CreateCopySubscription", "Copy trade subscription created", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{"status": "Subscription created", "subscription_id": subscription.ID.Hex()})
 }
@@ -75,7 +78,9 @@ func (h *CopyTradeHandler) GetUserSubscriptions(c *gin.Context) {
 		"follower_id": followerID,
 		"count":       len(subscriptions),
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "GetCopySubscriptions", "User copy subscriptions retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetCopySubscriptions", "User copy subscriptions retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, subscriptions)
 }
@@ -105,7 +110,9 @@ func (h *CopyTradeHandler) GetSubscription(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"subscription_id": subscriptionID,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "GetCopySubscription", "Copy subscription data retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetCopySubscription", "Copy subscription data retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, subscription)
 }

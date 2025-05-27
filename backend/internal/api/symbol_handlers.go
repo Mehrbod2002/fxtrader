@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"regexp"
 
@@ -57,7 +58,9 @@ func (h *SymbolHandler) CreateSymbol(c *gin.Context) {
 		"symbol_id":   symbol.ID.Hex(),
 		"symbol_name": symbol.SymbolName,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "CreateSymbol", "Symbol created", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "CreateSymbol", "Symbol created", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{"status": "Symbol created", "symbol_id": symbol.ID.Hex()})
 }
@@ -86,7 +89,9 @@ func (h *SymbolHandler) GetSymbol(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"symbol_id": id,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "GetSymbol", "Symbol data retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetSymbol", "Symbol data retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, symbol)
 }
@@ -106,7 +111,9 @@ func (h *SymbolHandler) GetAllSymbols(c *gin.Context) {
 		return
 	}
 
-	h.logService.LogAction(primitive.ObjectID{}, "GetAllSymbols", "All symbols retrieved", c.ClientIP(), nil)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetAllSymbols", "All symbols retrieved", c.ClientIP(), nil); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, symbols)
 }
@@ -140,7 +147,9 @@ func (h *SymbolHandler) UpdateSymbol(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"symbol_id": id,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "UpdateSymbol", "Symbol updated", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "UpdateSymbol", "Symbol updated", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "Symbol updated"})
 }
@@ -165,7 +174,9 @@ func (h *SymbolHandler) DeleteSymbol(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"symbol_id": id,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "DeleteSymbol", "Symbol deleted", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "DeleteSymbol", "Symbol deleted", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "Symbol deleted"})
 }

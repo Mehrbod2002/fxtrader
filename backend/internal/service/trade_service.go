@@ -309,7 +309,10 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 		"expiration":   expiration,
 	}
 
-	s.logService.LogAction(userObjID, "PlaceTrade", "Trade order placed", "", metadata)
+	if err := s.logService.LogAction(userObjID, "PlaceTrade", "Trade order placed", "", metadata); err != nil {
+		log.Printf("error: %v", err)
+		return nil, err
+	}
 
 	go func() {
 		if err := s.copyTradeService.MirrorTrade(trade, accountType); err != nil {
@@ -357,7 +360,10 @@ func (s *tradeService) HandleTradeResponse(response TradeResponse) error {
 		"status":           response.Status,
 		"matched_trade_id": response.MatchedTradeID,
 	}
-	s.logService.LogAction(trade.UserID, "TradeResponse", "Trade status updated", "", metadata)
+	if err := s.logService.LogAction(trade.UserID, "TradeResponse", "Trade status updated", "", metadata); err != nil {
+		log.Printf("error: %v", err)
+		return nil
+	}
 	return nil
 }
 
@@ -532,7 +538,10 @@ func (s *tradeService) handleBalanceResponse(response BalanceResponse, accountTy
 		"balance": response.Balance,
 	}
 
-	s.logService.LogAction(userObjID, "BalanceUpdate", "User balance updated from MT5", "", metadata)
+	if err := s.logService.LogAction(userObjID, "BalanceUpdate", "User balance updated from MT5", "", metadata); err != nil {
+		log.Printf("error: %v", err)
+		return nil
+	}
 	return nil
 }
 
@@ -653,7 +662,9 @@ func (s *tradeService) HandleCloseTradeResponse(response CloseTradeResponse) err
 		"close_price":  response.ClosePrice,
 		"close_reason": response.CloseReason,
 	}
-	s.logService.LogAction(trade.UserID, "CloseTradeResponse", "Trade closed", "", metadata)
+	if err := s.logService.LogAction(trade.UserID, "CloseTradeResponse", "Trade closed", "", metadata); err != nil {
+		return nil
+	}
 	s.hub.BroadcastTrade(trade)
 	return nil
 }
@@ -695,7 +706,10 @@ func (s *tradeService) HandleOrderStreamResponse(response OrderStreamResponse) e
 		"trade_count":  len(response.Trades),
 	}
 	userObjID, _ := primitive.ObjectIDFromHex(response.UserID)
-	s.logService.LogAction(userObjID, "OrderStreamResponse", "Order stream processed", "", metadata)
+	if err := s.logService.LogAction(userObjID, "OrderStreamResponse", "Order stream processed", "", metadata); err != nil {
+		log.Printf("error: %v", err)
+		return nil
+	}
 	return nil
 }
 

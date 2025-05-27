@@ -83,7 +83,9 @@ func (r *MongoTradeRepository) GetTradesByUserID(userID primitive.ObjectID) ([]*
 	for _, trade := range trades {
 		if trade.Expiration != nil && trade.Expiration.Before(now) && trade.Status == "PENDING" {
 			trade.Status = "EXPIRED"
-			r.collection.UpdateOne(ctx, bson.M{"_id": trade.ID}, bson.M{"$set": bson.M{"status": "EXPIRED"}})
+			if _, err := r.collection.UpdateOne(ctx, bson.M{"_id": trade.ID}, bson.M{"$set": bson.M{"status": "EXPIRED"}}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return trades, nil

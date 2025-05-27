@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
@@ -47,7 +48,9 @@ func (h *PriceHandler) HandlePrice(c *gin.Context) {
 		"bid":       priceData.Bid,
 		"timestamp": priceData.Timestamp,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "ProcessPrice", "Processed new price data", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "ProcessPrice", "Processed new price data", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "Price received"})
 }

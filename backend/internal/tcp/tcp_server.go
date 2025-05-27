@@ -78,10 +78,22 @@ func (s *TCPServer) Start(tradeService service.TradeService) error {
 				continue
 			}
 
-			conn.SetKeepAlive(true)
-			conn.SetKeepAlivePeriod(30 * time.Second)
-			conn.SetReadBuffer(8192)
-			conn.SetWriteBuffer(8192)
+			if err := conn.SetKeepAlive(true); err != nil {
+				log.Printf("error: %v", err)
+				break
+			}
+			if err := conn.SetKeepAlivePeriod(30 * time.Second); err != nil {
+				log.Printf("error: %v", err)
+				break
+			}
+			if err := conn.SetReadBuffer(8192); err != nil {
+				log.Printf("error: %v", err)
+				break
+			}
+			if err := conn.SetWriteBuffer(8192); err != nil {
+				log.Printf("error: %v", err)
+				break
+			}
 
 			clientID := conn.RemoteAddr().String()
 			s.addClient(clientID, conn)

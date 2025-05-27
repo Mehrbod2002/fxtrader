@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
@@ -56,7 +57,9 @@ func (h *AlertHandler) CreateAlert(c *gin.Context) {
 		"symbol_name": alert.SymbolName,
 		"alert_type":  alert.AlertType,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "CreateAlert", "Alert created", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "CreateAlert", "Alert created", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{"status": "Alert created", "alert_id": alert.ID.Hex()})
 }
@@ -82,7 +85,9 @@ func (h *AlertHandler) GetUserAlerts(c *gin.Context) {
 		"user_id": userID,
 		"count":   len(alerts),
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "GetUserAlerts", "User alerts retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetUserAlerts", "User alerts retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, alerts)
 }
@@ -112,7 +117,9 @@ func (h *AlertHandler) GetAlert(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"alert_id": alertID,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "GetAlert", "Alert data retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetAlert", "Alert data retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, alert)
 }

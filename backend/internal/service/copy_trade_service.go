@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"log"
 	"math"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
@@ -81,7 +82,10 @@ func (s *copyTradeService) CreateSubscription(followerID, leaderID string, alloc
 		"leader_id":        leaderID,
 		"allocated_amount": allocatedAmount,
 	}
-	s.logService.LogAction(primitive.ObjectID{}, "CreateCopySubscription", "Copy trade subscription created", "", metadata)
+	if err := s.logService.LogAction(primitive.ObjectID{}, "CreateCopySubscription", "Copy trade subscription created", "", metadata); err != nil {
+		log.Printf("error: %v", err)
+		return nil, err
+	}
 
 	return subscription, nil
 }
@@ -155,7 +159,10 @@ func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory, account
 			"follower_trade_id": followerTrade.ID.Hex(),
 			"follower_volume":   followerVolume,
 		}
-		s.logService.LogAction(primitive.ObjectID{}, "MirrorTrade", "Trade mirrored for follower", "", metadata)
+		if err := s.logService.LogAction(primitive.ObjectID{}, "MirrorTrade", "Trade mirrored for follower", "", metadata); err != nil {
+			log.Printf("error: %v", err)
+			return nil
+		}
 	}
 
 	return nil

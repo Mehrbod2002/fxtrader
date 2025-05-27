@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
@@ -123,7 +124,9 @@ func (h *OverviewHandler) GetOverview(c *gin.Context) {
 		"total_transactions":   totalTransactions,
 		"pending_transactions": pendingTransactions,
 	}
-	h.logService.LogAction(adminObjID, "GetOverview", "Admin overview data retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(adminObjID, "GetOverview", "Admin overview data retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, response)
 }

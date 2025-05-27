@@ -52,9 +52,15 @@ func (h *WebSocketHandler) readPump(client *models.Client) {
 	}()
 
 	client.Conn.SetReadLimit(maxMessageSize)
-	client.Conn.SetReadDeadline(time.Now().Add(pongWait))
+	if err := client.Conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		log.Printf("error setting read deadline: %v", err)
+		return
+	}
 	client.Conn.SetPongHandler(func(string) error {
-		client.Conn.SetReadDeadline(time.Now().Add(pongWait))
+		if err := client.Conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+			log.Printf("error setting read deadline in pong handler: %v", err)
+			return err
+		}
 		return nil
 	})
 
@@ -75,7 +81,10 @@ func (h *WebSocketHandler) readPump(client *models.Client) {
 
 		if err := json.Unmarshal(message, &socketMsg); err != nil {
 			response := models.ErrorResponse{Error: "Invalid message format"}
-			client.Conn.WriteJSON(response)
+			if err := client.Conn.WriteJSON(response); err != nil {
+				log.Printf("error: %v", err)
+				break
+			}
 			continue
 		}
 
@@ -93,12 +102,17 @@ func (h *WebSocketHandler) readPump(client *models.Client) {
 				Message: "Subscribed to " + socketMsg.Symbol,
 				Symbols: symbols,
 			}
-			client.Conn.WriteJSON(response)
+			if err := client.Conn.WriteJSON(response); err != nil {
+				log.Printf("error: %v", err)
+				continue
+			}
 
 		case "subscribe_trades":
 			if socketMsg.AccountType != "DEMO" && socketMsg.AccountType != "REAL" {
 				response := models.ErrorResponse{Error: "Invalid account type"}
-				client.Conn.WriteJSON(response)
+				if err := client.Conn.WriteJSON(response); err != nil {
+					log.Printf("error: %v", err)
+				}
 				continue
 			}
 			subscriptionKey := socketMsg.Symbol + ":" + socketMsg.AccountType
@@ -112,8 +126,14 @@ func (h *WebSocketHandler) readPump(client *models.Client) {
 				Message: "Subscribed to trade stream for user " + socketMsg.Symbol + " (" + socketMsg.AccountType + ")",
 				Symbols: symbols,
 			}
-			client.Conn.WriteJSON(response)
-			client.Conn.WriteJSON(map[string]string{"status": "trade_stream_started", "user_id": socketMsg.Symbol, "account_type": socketMsg.AccountType})
+			if err := client.Conn.WriteJSON(response); err != nil {
+				log.Printf("error: %v", err)
+				continue
+			}
+			if err := client.Conn.WriteJSON(map[string]string{"status": "trade_stream_started", "user_id": socketMsg.Symbol, "account_type": socketMsg.AccountType}); err != nil {
+				log.Printf("error: %v", err)
+				continue
+			}
 
 		case "unsubscribe":
 			client.Unsubscribe(socketMsg.Symbol)
@@ -128,11 +148,17 @@ func (h *WebSocketHandler) readPump(client *models.Client) {
 				Message: "Unsubscribed from " + socketMsg.Symbol,
 				Symbols: symbols,
 			}
-			client.Conn.WriteJSON(response)
+			if err := client.Conn.WriteJSON(response); err != nil {
+				log.Printf("error: %v", err)
+				continue
+			}
 
 		default:
 			response := models.ErrorResponse{Error: "Unknown action"}
-			client.Conn.WriteJSON(response)
+			if err := client.Conn.WriteJSON(response); err != nil {
+				log.Printf("error: %v", err)
+				continue
+			}
 		}
 	}
 }
@@ -147,9 +173,15 @@ func (h *WebSocketHandler) writePump(client *models.Client) {
 	for {
 		select {
 		case price, ok := <-client.Send:
-			client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := client.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("error: %v", err)
+				return
+			}
 			if !ok {
-				client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if err := client.Conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
+					log.Printf("error: %v", err)
+					return
+				}
 				return
 			}
 
@@ -159,9 +191,15 @@ func (h *WebSocketHandler) writePump(client *models.Client) {
 			}
 
 		case trade, ok := <-client.SendTrade:
-			client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := client.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("error: %v", err)
+				return
+			}
 			if !ok {
-				client.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if err := client.Conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
+					log.Printf("error: %v", err)
+					return
+				}
 				return
 			}
 			err := client.Conn.WriteJSON(trade)
@@ -170,7 +208,10 @@ func (h *WebSocketHandler) writePump(client *models.Client) {
 			}
 
 		case <-ticker.C:
-			client.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := client.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("error: %v", err)
+				continue
+			}
 			if err := client.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

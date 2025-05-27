@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
@@ -178,7 +179,9 @@ func (h *TransactionHandler) ReviewTransaction(c *gin.Context) {
 		"transaction_id": id,
 		"status":         req.Status,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "ReviewTransaction", "Transaction reviewed", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "ReviewTransaction", "Transaction reviewed", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "Transaction reviewed"})
 }

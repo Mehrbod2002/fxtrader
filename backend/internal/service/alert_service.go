@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
@@ -80,7 +81,9 @@ func (s *alertService) CreateAlert(userID string, alert *models.Alert) error {
 		"symbol_name": alert.SymbolName,
 		"alert_type":  alert.AlertType,
 	}
-	s.logService.LogAction(primitive.ObjectID{}, "CreateAlert", "Alert created", "", metadata)
+	if err := s.logService.LogAction(primitive.ObjectID{}, "CreateAlert", "Alert created", "", metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	return nil
 }
@@ -127,14 +130,20 @@ func (s *alertService) ProcessPriceForAlerts(price *models.PriceData) error {
 			}
 
 			message := "Alert triggered for " + alert.SymbolName + " at price " + fmt.Sprintf("%f", *alert.Condition.PriceTarget)
-			s.notifyFunc(alert.UserID, message)
+			if err := s.notifyFunc(alert.UserID, message); err != nil {
+				log.Printf("error: %v", err)
+				continue
+			}
 
 			metadata := map[string]interface{}{
 				"alert_id":     alert.ID.Hex(),
 				"symbol_name":  alert.SymbolName,
 				"price_target": *alert.Condition.PriceTarget,
 			}
-			s.logService.LogAction(primitive.ObjectID{}, "AlertTriggered", "Price alert triggered", "", metadata)
+			if err := s.logService.LogAction(primitive.ObjectID{}, "AlertTriggered", "Price alert triggered", "", metadata); err != nil {
+				log.Printf("error: %v", err)
+				continue
+			}
 		}
 	}
 
@@ -162,13 +171,19 @@ func (s *alertService) ProcessTimeBasedAlerts() error {
 			}
 
 			message := "Time-based alert triggered for " + alert.SymbolName
-			s.notifyFunc(alert.UserID, message)
+			if err := s.notifyFunc(alert.UserID, message); err != nil {
+				log.Printf("error: %v", err)
+				continue
+			}
 
 			metadata := map[string]interface{}{
 				"alert_id":    alert.ID.Hex(),
 				"symbol_name": alert.SymbolName,
 			}
-			s.logService.LogAction(primitive.ObjectID{}, "AlertTriggered", "Time alert triggered", "", metadata)
+			if err := s.logService.LogAction(primitive.ObjectID{}, "AlertTriggered", "Time alert triggered", "", metadata); err != nil {
+				log.Printf("error: %v", err)
+				continue
+			}
 		}
 	}
 

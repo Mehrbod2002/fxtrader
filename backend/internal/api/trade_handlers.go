@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -64,7 +65,9 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 		"trade_type": req.TradeType,
 		"order_type": req.OrderType,
 	}
-	h.logService.LogAction(trade.UserID, "PlaceTrade", "Trade order placed", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(trade.UserID, "PlaceTrade", "Trade order placed", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{"status": "Trade placed", "trade_id": trade.ID.Hex()})
 }
@@ -114,7 +117,9 @@ func (h *TradeHandler) CloseTrade(c *gin.Context) {
 		"user_id":  userID,
 		"trade_id": tradeID,
 	}
-	h.logService.LogAction(userObjID, "CloseTrade", "Trade close requested", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(userObjID, "CloseTrade", "Trade close requested", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "Trade close requested"})
 }
 
@@ -140,7 +145,9 @@ func (h *TradeHandler) StreamTrades(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"user_id": userID,
 	}
-	h.logService.LogAction(userObjID, "StreamTrades", "Trade streaming started", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(userObjID, "StreamTrades", "Trade streaming started", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "Streaming started"})
 }
 
@@ -166,7 +173,9 @@ func (h *TradeHandler) GetUserTrades(c *gin.Context) {
 		"user_id": userID,
 		"count":   len(trades),
 	}
-	h.logService.LogAction(userObjID, "GetUserTrades", "Retrieved user trades", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(userObjID, "GetUserTrades", "Retrieved user trades", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, trades)
 }
@@ -202,7 +211,9 @@ func (h *TradeHandler) GetTrade(c *gin.Context) {
 		"user_id":  userID,
 		"trade_id": tradeID,
 	}
-	h.logService.LogAction(userObjID, "GetTrade", "Trade data retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(userObjID, "GetTrade", "Trade data retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, trade)
 }
@@ -255,7 +266,9 @@ func (h *TradeHandler) GetAllTrades(c *gin.Context) {
 		"admin_id": userID,
 		"count":    len(trades),
 	}
-	h.logService.LogAction(userObjID, "GetAllTrades", "Retrieved all trades", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(userObjID, "GetAllTrades", "Retrieved all trades", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, trades)
 }
