@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"log"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
@@ -58,7 +59,9 @@ func (s *leaderRequestService) CreateLeaderRequest(userID, reason string) (*mode
 		"request_id": request.ID.Hex(),
 		"user_id":    userID,
 	}
-	s.logService.LogAction(primitive.ObjectID{}, "CreateLeaderRequest", "Leader request created", "", metadata)
+	if err := s.logService.LogAction(primitive.ObjectID{}, "CreateLeaderRequest", "Leader request created", "", metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 	return request, nil
 }
 
@@ -101,7 +104,9 @@ func (s *leaderRequestService) ApproveLeaderRequest(requestID, adminReason strin
 		"user_id":      request.UserID,
 		"admin_reason": adminReason,
 	}
-	s.logService.LogAction(primitive.ObjectID{}, "ApproveLeaderRequest", "Leader request approved", "", metadata)
+	if err := s.logService.LogAction(primitive.ObjectID{}, "ApproveLeaderRequest", "Leader request approved", "", metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 	return nil
 }
 
@@ -134,7 +139,9 @@ func (s *leaderRequestService) DenyLeaderRequest(requestID, adminReason string) 
 		"user_id":      request.UserID,
 		"admin_reason": adminReason,
 	}
-	s.logService.LogAction(primitive.ObjectID{}, "DenyLeaderRequest", "Leader request denied", "", metadata)
+	if err := s.logService.LogAction(primitive.ObjectID{}, "DenyLeaderRequest", "Leader request denied", "", metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 	return nil
 }
 

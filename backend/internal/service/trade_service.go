@@ -147,7 +147,11 @@ func (s *tradeService) RegisterMT5Connection(conn *websocket.Conn) {
 		for {
 			if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
 				log.Printf("Failed to set read deadline: %v", err)
-				go s.reconnectMT5()
+				go func() {
+					if err := s.reconnectMT5(); err != nil {
+						log.Printf("Failed to reconnect MT5: %v", err)
+					}
+				}()
 				return
 			}
 
@@ -158,7 +162,11 @@ func (s *tradeService) RegisterMT5Connection(conn *websocket.Conn) {
 				} else {
 					log.Printf("Failed to read from MT5 connection: %v", err)
 				}
-				go s.reconnectMT5()
+				go func() {
+					if err := s.reconnectMT5(); err != nil {
+						log.Printf("Failed to reconnect MT5: %v", err)
+					}
+				}()
 				return
 			}
 
@@ -250,7 +258,11 @@ func (s *tradeService) sendToMT5(msg interface{}) error {
 		log.Printf("Failed to send data to MT5, initiating reconnect: %v", err)
 		s.mt5Conn.Close()
 		s.mt5Conn = nil
-		go s.reconnectMT5()
+		go func() {
+			if err := s.reconnectMT5(); err != nil {
+				log.Printf("Failed to reconnect MT5: %v", err)
+			}
+		}()
 		return fmt.Errorf("failed to send data to MT5: %v", err)
 	}
 	return nil
@@ -426,7 +438,9 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 			"status":           response.Status,
 			"matched_trade_id": response.MatchedTradeID,
 		}
-		s.logService.LogAction(trade.UserID, "TradeResponse", "Trade status updated", "", metadata)
+		if err := s.logService.LogAction(trade.UserID, "TradeResponse", "Trade status updated", "", metadata); err != nil {
+			log.Printf("error: %v", err)
+		}
 	case <-time.After(10 * time.Second):
 		return nil, errors.New("timeout waiting for MT5 trade response")
 	}
@@ -650,42 +664,6 @@ func (s *tradeService) RequestBalance(userID, accountType string) (float64, erro
 		}
 		return user.RealMT5Balance, nil
 	}
-}
-
-func (s *tradeService) handleBalanceResponse(response BalanceResponse, accountType string) error {
-	userObjID, err := primitive.ObjectIDFromHex(response.UserID)
-	if err != nil {
-		return errors.New("invalid user ID in balance response")
-	}
-
-	user, err := s.userRepo.GetUserByID(userObjID)
-	if err != nil {
-		return errors.New("failed to fetch user")
-	}
-	if user == nil {
-		return errors.New("user not found")
-	}
-
-	if accountType == "REAL" {
-		user.RealMT5Balance = response.Balance
-	} else {
-		user.DemoMT5Balance = response.Balance
-	}
-
-	if err := s.userRepo.UpdateUser(user); err != nil {
-		return err
-	}
-
-	metadata := map[string]interface{}{
-		"user_id": response.UserID,
-		"balance": response.Balance,
-	}
-
-	if err := s.logService.LogAction(userObjID, "BalanceUpdate", "User balance updated from MT5", "", metadata); err != nil {
-		log.Printf("error: %v", err)
-		return nil
-	}
-	return nil
 }
 
 func (s *tradeService) CloseTrade(tradeID, userID, accountType string) error {

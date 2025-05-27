@@ -36,7 +36,6 @@ type WebSocketServer struct {
 	clients         map[string]*Client
 	clientsMu       sync.RWMutex
 	tradeService    service.TradeService
-	reconnectMu     sync.Mutex
 	ctx             context.Context
 	cancel          context.CancelFunc
 	upgrader        websocket.Upgrader
@@ -111,7 +110,9 @@ func (s *WebSocketServer) addClient(clientID string, conn *websocket.Conn, cance
 			"reason":    "New connection established",
 			"timestamp": time.Now().Unix(),
 		}
-		s.sendJSONMessage(oldClient.conn, disconnectMsg)
+		if err := s.sendJSONMessage(oldClient.conn, disconnectMsg); err != nil {
+			log.Printf("error: %v", err)
+		}
 		oldClient.conn.Close()
 		oldClient.cancelPing()
 	}

@@ -144,7 +144,9 @@ func (h *TransactionHandler) GetTransactionByID(c *gin.Context) {
 		"admin_id":       adminID,
 		"transaction_id": transactionID,
 	}
-	h.logService.LogAction(adminObjID, "GetTransactionByID", "Transaction data retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(adminObjID, "GetTransactionByID", "Transaction data retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, transaction)
 }

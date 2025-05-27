@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -80,7 +81,9 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 		"username": user.Username,
 		"user_id":  user.ID.Hex(),
 	}
-	h.logService.LogAction(user.ID, "UserSignup", "User signed up via Telegram", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(user.ID, "UserSignup", "User signed up via Telegram", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{
 		"status":  "User created",
@@ -120,7 +123,9 @@ func (h *UserHandler) Login(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"user_id": user.ID.Hex(),
 	}
-	h.logService.LogAction(user.ID, "UserLogin", "User logged in via Telegram", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(user.ID, "UserLogin", "User logged in via Telegram", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"status": "Login successful",
@@ -152,7 +157,9 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"id": id,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "GetUser", "User data retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetUser", "User data retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, user)
 }
@@ -174,7 +181,9 @@ func (h *UserHandler) GetAllUsers(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"count": len(users),
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "GetAllUsers", "Retrieved all users", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetAllUsers", "Retrieved all users", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, users)
 }

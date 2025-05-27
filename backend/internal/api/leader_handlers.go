@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/mehrbod2002/fxtrader/internal/service"
@@ -56,7 +57,9 @@ func (h *LeaderRequestHandler) CreateLeaderRequest(c *gin.Context) {
 		"request_id": request.ID.Hex(),
 		"user_id":    userID,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "CreateLeaderRequest", "Leader request created", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "CreateLeaderRequest", "Leader request created", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusCreated, gin.H{"status": "Leader request created", "request_id": request.ID.Hex()})
 }
@@ -96,7 +99,9 @@ func (h *LeaderRequestHandler) ApproveLeaderRequest(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"request_id": requestID,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "ApproveLeaderRequest", "Leader request approved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "ApproveLeaderRequest", "Leader request approved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "Leader request approved"})
 }
@@ -136,7 +141,9 @@ func (h *LeaderRequestHandler) DenyLeaderRequest(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"request_id": requestID,
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "DenyLeaderRequest", "Leader request denied", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "DenyLeaderRequest", "Leader request denied", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "Leader request denied"})
 }
@@ -165,7 +172,9 @@ func (h *LeaderRequestHandler) GetPendingLeaderRequests(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"count": len(requests),
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "GetPendingLeaderRequests", "Pending leader requests retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetPendingLeaderRequests", "Pending leader requests retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, requests)
 }
@@ -188,7 +197,9 @@ func (h *LeaderRequestHandler) GetApprovedLeaders(c *gin.Context) {
 	metadata := map[string]interface{}{
 		"count": len(leaders),
 	}
-	h.logService.LogAction(primitive.ObjectID{}, "GetApprovedLeaders", "Approved leaders retrieved", c.ClientIP(), metadata)
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetApprovedLeaders", "Approved leaders retrieved", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
 
 	c.JSON(http.StatusOK, leaders)
 }
