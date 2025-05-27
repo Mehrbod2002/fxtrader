@@ -45,6 +45,13 @@ definitions:
     - allocated_amount
     - leader_id
     type: object
+  api.CreateLeaderRequest:
+    properties:
+      reason:
+        type: string
+    required:
+    - reason
+    type: object
   api.LoginRequest:
     properties:
       telegram_id:
@@ -52,11 +59,20 @@ definitions:
     required:
     - telegram_id
     type: object
+  api.ManageLeaderRequest:
+    properties:
+      admin_reason:
+        type: string
+    required:
+    - admin_reason
+    type: object
   api.OverviewResponse:
     properties:
       pending_trades:
         type: integer
       pending_transactions:
+        type: integer
+      symbols:
         type: integer
       top_symbols:
         items:
@@ -162,7 +178,6 @@ definitions:
       user_id:
         type: string
     required:
-    - is_active
     - user_id
     type: object
   models.ActivceStatus:
@@ -237,6 +252,23 @@ definitions:
         type: string
       status:
         $ref: '#/definitions/models.ActivceStatus'
+    type: object
+  models.LeaderRequest:
+    properties:
+      admin_reason:
+        type: string
+      created_at:
+        type: string
+      id:
+        type: string
+      reason:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+      user_id:
+        type: string
     type: object
   models.LogEntry:
     properties:
@@ -444,6 +476,8 @@ definitions:
         type: string
       is_active:
         type: boolean
+      is_copy_trade_leader:
+        type: boolean
       leverage:
         type: integer
       national_id:
@@ -472,7 +506,7 @@ definitions:
       status:
         type: string
       timestamp:
-        type: integer
+        type: number
       trade_id:
         type: string
       user_id:
@@ -1267,6 +1301,29 @@ paths:
       summary: Get transaction by ID
       tags:
       - Transactions
+  /copy-trade-leaders:
+    get:
+      description: Retrieves a list of approved copy trade leaders
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.UserAccount'
+            type: array
+        "500":
+          description: Failed to retrieve leaders
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get approved copy trade leaders
+      tags:
+      - CopyTrading
   /copy-trades:
     get:
       description: Retrieves all copy trade subscriptions for the authenticated user
@@ -1370,6 +1427,176 @@ paths:
       security:
       - BearerAuth: []
       summary: Get copy trade subscription by ID
+      tags:
+      - CopyTrading
+  /leader-requests:
+    get:
+      description: Retrieves all pending leader requests for admin review
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.LeaderRequest'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to retrieve leader requests
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Get pending leader requests
+      tags:
+      - CopyTrading
+    post:
+      consumes:
+      - application/json
+      description: Allows a user to submit a request to become a copy trade leader
+      parameters:
+      - description: Leader request data
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateLeaderRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Leader request created
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to create leader request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Request to become a copy trade leader
+      tags:
+      - CopyTrading
+  /leader-requests/{id}/approve:
+    post:
+      consumes:
+      - application/json
+      description: Allows an admin to approve a leader request
+      parameters:
+      - description: Request ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Admin reason
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.ManageLeaderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Leader request approved
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to approve leader request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Approve a leader request
+      tags:
+      - CopyTrading
+  /leader-requests/{id}/deny:
+    post:
+      consumes:
+      - application/json
+      description: Allows an admin to deny a leader request
+      parameters:
+      - description: Request ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Admin reason
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.ManageLeaderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Leader request denied
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to deny leader request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Deny a leader request
       tags:
       - CopyTrading
   /prices:

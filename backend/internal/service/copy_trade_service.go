@@ -55,6 +55,9 @@ func (s *copyTradeService) CreateSubscription(followerID, leaderID string, alloc
 	if err != nil || leader == nil {
 		return nil, errors.New("leader not found")
 	}
+	if !leader.IsCopyTradeLeader {
+		return nil, errors.New("user is not an approved copy trade leader")
+	}
 
 	followerBalance, err := s.tradeService.RequestBalance(followerID, accountType)
 	if err != nil {

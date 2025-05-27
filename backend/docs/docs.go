@@ -1241,6 +1241,43 @@ const docTemplate = `{
                 }
             }
         },
+        "/copy-trade-leaders": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves a list of approved copy trade leaders",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CopyTrading"
+                ],
+                "summary": "Get approved copy trade leaders",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.UserAccount"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to retrieve leaders",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/copy-trades": {
             "get": {
                 "security": [
@@ -1396,6 +1433,271 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Subscription not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/leader-requests": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves all pending leader requests for admin review",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CopyTrading"
+                ],
+                "summary": "Get pending leader requests",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.LeaderRequest"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to retrieve leader requests",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Allows a user to submit a request to become a copy trade leader",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CopyTrading"
+                ],
+                "summary": "Request to become a copy trade leader",
+                "parameters": [
+                    {
+                        "description": "Leader request data",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateLeaderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Leader request created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to create leader request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/leader-requests/{id}/approve": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Allows an admin to approve a leader request",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CopyTrading"
+                ],
+                "summary": "Approve a leader request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Request ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Admin reason",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.ManageLeaderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Leader request approved",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to approve leader request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/leader-requests/{id}/deny": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Allows an admin to deny a leader request",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CopyTrading"
+                ],
+                "summary": "Deny a leader request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Request ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Admin reason",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.ManageLeaderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Leader request denied",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to deny leader request",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2328,6 +2630,17 @@ const docTemplate = `{
                 }
             }
         },
+        "api.CreateLeaderRequest": {
+            "type": "object",
+            "required": [
+                "reason"
+            ],
+            "properties": {
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
         "api.LoginRequest": {
             "type": "object",
             "required": [
@@ -2339,6 +2652,17 @@ const docTemplate = `{
                 }
             }
         },
+        "api.ManageLeaderRequest": {
+            "type": "object",
+            "required": [
+                "admin_reason"
+            ],
+            "properties": {
+                "admin_reason": {
+                    "type": "string"
+                }
+            }
+        },
         "api.OverviewResponse": {
             "type": "object",
             "properties": {
@@ -2346,6 +2670,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "pending_transactions": {
+                    "type": "integer"
+                },
+                "symbols": {
                     "type": "integer"
                 },
                 "top_symbols": {
@@ -2500,7 +2827,6 @@ const docTemplate = `{
         "api.UserActivationRequest": {
             "type": "object",
             "required": [
-                "is_active",
                 "user_id"
             ],
             "properties": {
@@ -2616,6 +2942,32 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/models.ActivceStatus"
+                }
+            }
+        },
+        "models.LeaderRequest": {
+            "type": "object",
+            "properties": {
+                "admin_reason": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
                 }
             }
         },
@@ -2926,6 +3278,9 @@ const docTemplate = `{
                 "is_active": {
                     "type": "boolean"
                 },
+                "is_copy_trade_leader": {
+                    "type": "boolean"
+                },
                 "leverage": {
                     "type": "integer"
                 },
@@ -2968,7 +3323,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "timestamp": {
-                    "type": "integer"
+                    "type": "number"
                 },
                 "trade_id": {
                     "type": "string"

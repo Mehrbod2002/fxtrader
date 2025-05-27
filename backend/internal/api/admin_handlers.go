@@ -29,7 +29,7 @@ func NewAdminHandler(adminRepo repository.AdminRepository, cfg *config.Config, u
 
 type UserActivationRequest struct {
 	UserID   string `json:"user_id" binding:"required"`
-	IsActive bool   `json:"is_active" binding:"required"`
+	IsActive bool   `json:"is_active"`
 }
 
 // @Summary Activate or deactivate a user
