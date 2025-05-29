@@ -1,2 +1,4 @@
 go.sum
 backend/cmd/server/server*
+.vscode
+metatrader/**/__pycache__/
