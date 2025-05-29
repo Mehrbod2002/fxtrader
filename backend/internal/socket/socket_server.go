@@ -1,4 +1,4 @@
-package tcp
+package socket
 
 import (
 	"context"

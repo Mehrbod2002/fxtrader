@@ -101,43 +101,6 @@ func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository
 	}, nil
 }
 
-func (s *tradeService) reconnectMT5() error {
-	s.mt5ConnMu.Lock()
-	defer s.mt5ConnMu.Unlock()
-
-	if s.mt5Conn != nil {
-		s.mt5Conn.Close()
-		s.mt5Conn = nil
-	}
-
-	backoff := mt5ReconnectBackoffInitial
-	attempts := 0
-	dialer := websocket.Dialer{
-		HandshakeTimeout: 10 * time.Second,
-	}
-
-	for attempts < mt5ReconnectMaxAttempts {
-		conn, _, err := dialer.Dial("ws://127.0.0.1:8080/ws", nil)
-		if err != nil {
-			log.Printf("Failed to reconnect to MT5: %v", err)
-			time.Sleep(backoff)
-			backoff = time.Duration(float64(backoff) * 1.5)
-			if backoff > mt5ReconnectBackoffMax {
-				backoff = mt5ReconnectBackoffMax
-			}
-			attempts++
-			continue
-		}
-
-		conn.SetReadLimit(4096)
-		s.mt5Conn = conn
-		log.Printf("Reconnected to MT5")
-		go s.RegisterMT5Connection(conn)
-		return nil
-	}
-	return fmt.Errorf("failed to reconnect to MT5 after %d attempts", mt5ReconnectMaxAttempts)
-}
-
 func (s *tradeService) RegisterMT5Connection(conn *websocket.Conn) {
 	s.mt5ConnMu.Lock()
 	s.mt5Conn = conn
@@ -147,11 +110,6 @@ func (s *tradeService) RegisterMT5Connection(conn *websocket.Conn) {
 		for {
 			if err := conn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
 				log.Printf("Failed to set read deadline: %v", err)
-				go func() {
-					if err := s.reconnectMT5(); err != nil {
-						log.Printf("Failed to reconnect MT5: %v", err)
-					}
-				}()
 				return
 			}
 
@@ -162,11 +120,6 @@ func (s *tradeService) RegisterMT5Connection(conn *websocket.Conn) {
 				} else {
 					log.Printf("Failed to read from MT5 connection: %v", err)
 				}
-				go func() {
-					if err := s.reconnectMT5(); err != nil {
-						log.Printf("Failed to reconnect MT5: %v", err)
-					}
-				}()
 				return
 			}
 
@@ -240,9 +193,7 @@ func (s *tradeService) sendToMT5(msg interface{}) error {
 	defer s.mt5ConnMu.Unlock()
 
 	if s.mt5Conn == nil {
-		if err := s.reconnectMT5(); err != nil {
-			return fmt.Errorf("no MT5 connection and reconnect failed: %v", err)
-		}
+		return fmt.Errorf("no MT5 connection available")
 	}
 
 	data, err := json.Marshal(msg)
@@ -255,14 +206,8 @@ func (s *tradeService) sendToMT5(msg interface{}) error {
 	}
 
 	if err := s.mt5Conn.WriteMessage(websocket.TextMessage, data); err != nil {
-		log.Printf("Failed to send data to MT5, initiating reconnect: %v", err)
-		s.mt5Conn.Close()
+		log.Printf("Failed to send data to MT5: %v", err)
 		s.mt5Conn = nil
-		go func() {
-			if err := s.reconnectMT5(); err != nil {
-				log.Printf("Failed to reconnect MT5: %v", err)
-			}
-		}()
 		return fmt.Errorf("failed to send data to MT5: %v", err)
 	}
 	return nil

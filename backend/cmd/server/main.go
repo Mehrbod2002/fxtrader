@@ -11,7 +11,7 @@ import (
 	"github.com/mehrbod2002/fxtrader/internal/middleware"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
 	"github.com/mehrbod2002/fxtrader/internal/service"
-	"github.com/mehrbod2002/fxtrader/internal/tcp"
+	"github.com/mehrbod2002/fxtrader/internal/socket"
 	"github.com/mehrbod2002/fxtrader/internal/ws"
 
 	"github.com/gin-gonic/gin"
@@ -78,12 +78,12 @@ func main() {
 
 	copyTradeService.SetTradeService(tradeService)
 
-	tcpServer, err := tcp.NewWebSocketServer(cfg.ListenPort)
+	socketServer, err := socket.NewWebSocketServer(cfg.ListenPort)
 	if err != nil {
 		log.Fatalf("Failed to initialize TCP server: %v", err)
 	}
 
-	if err := tcpServer.Start(tradeService); err != nil {
+	if err := socketServer.Start(tradeService); err != nil {
 		log.Fatalf("Failed to start TCP server: %v", err)
 	}
 
