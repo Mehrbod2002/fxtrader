@@ -1,6 +1,7 @@
 import asyncio
 import websockets
 import json
+import time
 from config.settings import settings
 from services.trade_manager import TradeManager
 from utils.logger import logger
@@ -15,7 +16,7 @@ class WebSocketClient:
         self.missed_pongs = 0
 
     async def initialize(self):
-        await self.connect()
+        return await self.connect()
 
     async def connect(self):
         full_url = f"ws://{settings.WEBSOCKET_URL}:{settings.WEBSOCKET_PORT}{settings.WEBSOCKET_PATH}"
@@ -41,7 +42,7 @@ class WebSocketClient:
         handshake = {
             "type": "handshake",
             "client_id": settings.CLIENT_ID,
-            "timestamp": float(self.trade_manager.mt5_client.get_symbol_tick(settings.SYMBOL).time)
+            "timestamp": float(self.trade_manager.get_timestamp())
         }
         try:
             await self.websocket.send(json.dumps(handshake))
@@ -51,6 +52,15 @@ class WebSocketClient:
             logger.error(f"Failed to send handshake: {str(e)}")
             return False
 
+    async def send_ping(self):
+        while True:
+            try:
+                ping = {"type": "ping", "timestamp": float(self.trade_manager.get_timestamp())}
+                await self.websocket.send(json.dumps(ping))
+                await asyncio.sleep(settings.PING_INTERVAL)
+            except Exception as e:
+                logger.error(f"Error sending ping: {str(e)}")
+                await self.reconnect()
     async def process_messages(self):
         while True:
             try:
@@ -61,9 +71,9 @@ class WebSocketClient:
                     msg_type = json_data.get("type", "")
                     if msg_type == "handshake_response":
                         self.reconnect_attempts = 0
-                        logger.info("Received handshake response")
                     elif msg_type == "trade_request":
-                        await self.trade_manager.handle_trade_request(json_data, self.websocket)
+                        fa = await self.trade_manager.handle_trade_request(json_data, self.websocket)
+                        print("true or false ", fa)
                     elif msg_type == "balance_request":
                         await self.trade_manager.handle_balance_request(json_data, self.websocket)
                     elif msg_type == "close_trade_request":
@@ -71,9 +81,10 @@ class WebSocketClient:
                     elif msg_type == "order_stream_request":
                         await self.trade_manager.handle_order_stream_request(json_data, self.websocket)
                     elif msg_type == "ping":
-                        pong = {"type": "pong", "timestamp": float(self.trade_manager.mt5_client.get_symbol_tick(settings.SYMBOL).time)}
+                        pong = {"type": "pong", "timestamp": float(self.trade_manager.get_timestamp())}
                         await self.websocket.send(json.dumps(pong))
-                        logger.info(f"Sent pong: {json.dumps(pong)}")
+                        self.missed_pongs = 0
+                    elif msg_type == "pong":
                         self.missed_pongs = 0
                     else:
                         logger.warning(f"Unknown message type: {msg_type}")
@@ -93,12 +104,11 @@ class WebSocketClient:
                 await self.reconnect()
 
     async def handle_ping(self):
-        current_time = float(self.trade_manager.mt5_client.get_symbol_tick(settings.SYMBOL).time)
+        current_time = float(self.trade_manager.get_timestamp())
         if current_time - self.last_ping_sent >= settings.PING_INTERVAL:
             ping = {"type": "ping", "timestamp": current_time}
             try:
                 await self.websocket.send(json.dumps(ping))
-                logger.info(f"Sent ping: {json.dumps(ping)}")
                 self.last_ping_sent = current_time
             except ConnectionClosed:
                 logger.error("WebSocket closed while sending ping, reconnecting")
@@ -128,7 +138,7 @@ class WebSocketClient:
             disconnect = {
                 "type": "disconnect",
                 "reason": "Client shutdown",
-                "timestamp": float(self.trade_manager.mt5_client.get_symbol_tick(settings.SYMBOL).time)
+                "timestamp": float(self.trade_manager.get_timestamp() or time.time())
             }
             try:
                 await self.websocket.send(json.dumps(disconnect))

@@ -1,4 +1,5 @@
 import json
+import time
 from websockets.exceptions import ConnectionClosed
 from models.trade import PoolTrade
 from services.mt5_client import MT5Client
@@ -21,10 +22,14 @@ class TradeManager:
             "SELL_STOP": PendingTradeStrategy()
         }
 
+    def get_timestamp(self):
+        tick = self.mt5_client.get_symbol_tick(settings.SYMBOL)
+        return tick.time if tick else time.time()
+
     def validate_trade(self, trade: PoolTrade) -> bool:
         if trade.trade_type not in ["BUY", "SELL"]:
             return False
-        if trade.order_type not in ["MARKET", "BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
+        if trade.order_type not in ["MARKET", "LIMIT", "BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
             return False
         if trade.account_type not in ["DEMO", "REAL"]:
             return False
@@ -36,7 +41,7 @@ class TradeManager:
             return False
         if trade.stop_loss < 0 or trade.take_profit < 0:
             return False
-        current_time = int(self.mt5_client.get_symbol_tick(trade.symbol).time)
+        current_time = int(self.get_timestamp())
         if trade.expiration > 0 and trade.expiration <= current_time:
             return False
         return True
@@ -56,8 +61,10 @@ class TradeManager:
             return False
 
         trade = self.trade_factory.create_trade(json_data)
+        print("trade requested: ",trade, "\n\n")
         if not self.validate_trade(trade):
             await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Invalid trade parameters")
+            print("self trade")            
             return False
 
         match_index = self.trade_repository.find_matching_trade(trade)
@@ -68,6 +75,7 @@ class TradeManager:
                 await self.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
         else:
             strategy = self.strategies.get(trade.order_type)
+            print("not matched")
             if strategy and strategy.execute(trade, self.mt5_client) and trade.trade_id != "":
                 self.trade_repository.add_to_pool(trade)
                 await self.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
@@ -257,7 +265,7 @@ class TradeManager:
             self.trade_repository.queue_message(json.dumps(response.dict()))
 
     def process_tick(self):
-        current_time = int(self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
+        current_time = int(self.get_timestamp())
         for trade in self.trade_repository.pool:
             if trade.trade_id == "" or trade.ticket == 0:
                 continue

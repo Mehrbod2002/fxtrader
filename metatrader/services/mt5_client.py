@@ -4,24 +4,33 @@ from utils.logger import logger
 
 class MT5Client:
     def __init__(self):
+        self.initialized = False
         self._initialize()
 
     def _initialize(self):
-        if not mt5.initialize(
-            path=settings.MT5_PATH,
-            login=settings.MT5_LOGIN,
-            password=settings.MT5_PASSWORD,
-            server=settings.MT5_SERVER,
-            timeout=60000
-        ):
-            logger.error(f"Failed to initialize MetaTrader5: {mt5.last_error()}")
-            raise SystemExit
-        if not mt5.symbol_select(settings.SYMBOL, True):
-            logger.error(f"Failed to select symbol {settings.SYMBOL}: {mt5.last_error()}")
-            mt5.shutdown()
-            raise SystemExit
+        try:
+            if not mt5.initialize(
+                path=settings.MT5_PATH,
+                login=settings.MT5_LOGIN,
+                password=settings.MT5_PASSWORD,
+                server=settings.MT5_SERVER,
+                timeout=60000
+            ):
+                logger.error(f"Failed to initialize MetaTrader5: {mt5.last_error()}")
+                return
+            if not mt5.symbol_select(settings.SYMBOL, True):
+                logger.error(f"Failed to select symbol {settings.SYMBOL}: {mt5.last_error()}")
+                mt5.shutdown()
+                return
+            self.initialized = True
+            logger.info("MetaTrader5 initialized successfully")
+        except Exception as e:
+            logger.error(f"Exception during MT5 initialization: {str(e)}")
 
     def execute_market_trade(self, trade, price: float) -> bool:
+        if not self.initialized:
+            logger.error("MT5 not initialized, cannot execute trade")
+            return False
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": trade.symbol,
@@ -44,6 +53,9 @@ class MT5Client:
         return False
 
     def place_pending_order(self, trade) -> bool:
+        if not self.initialized:
+            logger.error("MT5 not initialized, cannot place order")
+            return False
         order_types = {
             "BUY_LIMIT": mt5.ORDER_TYPE_BUY_LIMIT,
             "SELL_LIMIT": mt5.ORDER_TYPE_SELL_LIMIT,
@@ -73,6 +85,9 @@ class MT5Client:
         return False
 
     def close_order(self, ticket: int, symbol: str, volume: float, position_type: int) -> bool:
+        if not self.initialized:
+            logger.error("MT5 not initialized, cannot close order")
+            return False
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
             "symbol": symbol,
@@ -87,20 +102,34 @@ class MT5Client:
         return result.retcode == mt5.TRADE_RETCODE_DONE
 
     def get_balance(self) -> float:
+        if not self.initialized:
+            logger.error("MT5 not initialized, cannot get balance")
+            return 0.0
         return mt5.account_info().balance
 
     def get_positions(self):
+        if not self.initialized:
+            return []
         return mt5.positions_get()
 
     def get_orders(self):
+        if not self.initialized:
+            return []
         return mt5.orders_get()
 
     def get_symbol_info(self, symbol: str):
+        if not self.initialized:
+            return None
         return mt5.symbol_info(symbol)
 
     def get_symbol_tick(self, symbol: str):
+        if not self.initialized:
+            logger.error("MT5 not initialized, cannot get symbol tick")
+            return None
         return mt5.symbol_info_tick(symbol)
 
     def shutdown(self):
-        mt5.shutdown()
-        logger.info("MetaTrader5 connection closed")
+        if self.initialized:
+            mt5.shutdown()
+            self.initialized = False
+            logger.info("MetaTrader5 connection closed")

@@ -4,6 +4,7 @@ from services.trade_manager import TradeManager
 from services.websocket_client import WebSocketClient
 from factories.trade_factory import TradeFactory
 from repositories.trade_repository import TradeRepository
+from config.settings import settings
 from utils.logger import logger
 
 async def main():
@@ -24,10 +25,11 @@ async def main():
                 trade_repository.cleanup_trade_pool()
                 trade_manager.process_tick()
                 await ws_client.handle_ping()
-                await asyncio.sleep(trade_repository.settings.TIMER_INTERVAL)
+                await asyncio.sleep(settings.TIMER_INTERVAL)
 
         await asyncio.gather(
             ws_client.process_messages(),
+            ws_client.send_ping(),
             background_task()
         )
     finally:

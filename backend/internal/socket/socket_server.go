@@ -75,6 +75,7 @@ func (s *WebSocketServer) Start(tradeService service.TradeService) error {
 	s.tradeService = tradeService
 
 	s.RegisterHandler("handshake", s.handleHandshake)
+	s.RegisterHandler("ping", s.handlePing)
 	s.RegisterHandler("pong", s.handlePong)
 	s.RegisterHandler("disconnect", s.handleDisconnect)
 	s.RegisterHandler("close_trade_response", s.handleCloseTradeResponse)
@@ -176,13 +177,26 @@ func (s *WebSocketServer) startPingMonitor(conn *websocket.Conn, clientID string
 				continue
 			}
 			log.Printf("Sent ping to client %s", clientID)
-			missedPongs = 0
 		}
 	}
 }
 
 func (s *WebSocketServer) handlePong(msg map[string]interface{}, conn *websocket.Conn) error {
-	log.Printf("Received pong from client %s", conn.RemoteAddr().String())
+	return nil
+}
+
+func (s *WebSocketServer) handlePing(msg map[string]interface{}, conn *websocket.Conn) error {
+	clientID := conn.RemoteAddr().String()
+
+	pongMsg := map[string]interface{}{
+		"type":      "pong",
+		"timestamp": time.Now().Unix(),
+	}
+	if err := s.sendJSONMessage(conn, pongMsg); err != nil {
+		log.Printf("Failed to send pong to client %s: %v", clientID, err)
+		return fmt.Errorf("failed to send pong: %v", err)
+	}
+	log.Printf("Sent pong to client %s", clientID)
 	return nil
 }
 
@@ -278,8 +292,6 @@ func (s *WebSocketServer) sendJSONMessage(conn *websocket.Conn, msg interface{})
 }
 
 func (s *WebSocketServer) handleHandshake(msg map[string]interface{}, conn *websocket.Conn) error {
-	log.Printf("Received handshake from client: %v", msg)
-
 	response := map[string]interface{}{
 		"type":      "handshake_response",
 		"status":    "success",

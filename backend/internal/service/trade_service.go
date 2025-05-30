@@ -183,6 +183,16 @@ func (s *tradeService) RegisterMT5Connection(conn *websocket.Conn) {
 					continue
 				}
 				s.balanceChan <- response
+			} else if msgType == "ping" {
+				handshakeResponse := map[string]interface{}{
+					"type":      "pong",
+					"timestamp": time.Now().Unix(),
+				}
+				if err := s.sendToMT5(handshakeResponse); err != nil {
+					log.Printf("Failed to send pong response: %v", err)
+					continue
+				}
+				log.Printf("Sent pong response")
 			}
 		}
 	}()

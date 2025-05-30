@@ -5,19 +5,17 @@ class Settings:
     MT5_PATH = "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
     SYMBOL = "EURUSD_o"
     WEBSOCKET_URL = "127.0.0.1"
-    WEBSOCKET_PORT = 8080
+    WEBSOCKET_PORT = 7003  # Updated to match Go server
     WEBSOCKET_PATH = "/ws"
-    PRICE_HTTP_URL = "http://144.76.169.71:7000/api/v1/prices"
-    HTTP_TIMEOUT = 10
     CLIENT_ID = "MT5_Client_1"
-    PING_INTERVAL = 30
-    RECONNECT_BACKOFF_INITIAL = 2
-    RECONNECT_BACKOFF_MAX = 30
+    PING_INTERVAL = 30  # seconds
+    RECONNECT_BACKOFF_INITIAL = 2  # seconds
+    RECONNECT_BACKOFF_MAX = 30  # seconds
     MAX_RECONNECT_ATTEMPTS = 5
     SPREAD_TOLERANCE = 0.0001
-    TIMER_INTERVAL = 0.5
-    READ_TIMEOUT = 120
-    WRITE_TIMEOUT = 10
-    MAX_MESSAGE_SIZE = 1024 * 1024
+    TIMER_INTERVAL = 0.5  # seconds
+    READ_TIMEOUT = 120  # seconds
+    WRITE_TIMEOUT = 10  # seconds
+    MAX_MESSAGE_SIZE = 1024 * 1024  # 1MB
 
 settings = Settings()
