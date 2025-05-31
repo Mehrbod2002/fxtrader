@@ -17,5 +17,7 @@ class Settings:
     READ_TIMEOUT = 120  # seconds
     WRITE_TIMEOUT = 10  # seconds
     MAX_MESSAGE_SIZE = 1024 * 1024  # 1MB
+    REDIS_HOST = "localhost"
+    REDIS_PORT = "6379"
 
 settings = Settings()

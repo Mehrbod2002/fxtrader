@@ -23,6 +23,7 @@ class TradeResponse(BaseModel):
     user_id: str
     status: str
     matched_trade_id: str
+    matched_volume: float
     timestamp: float
 
 class CloseTradeResponse(BaseModel):

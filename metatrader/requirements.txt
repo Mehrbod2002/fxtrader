@@ -2,3 +2,5 @@ MetaTrader5
 websockets
 pydantic
 requests
+redis
+async_timeout

@@ -1,135 +1,132 @@
 import MetaTrader5 as mt5
-from config.settings import settings
+from threading import Lock
 from utils.logger import logger
 
 class MT5Client:
     def __init__(self):
-        self.initialized = False
-        self._initialize()
+        self.margin_lock = Lock()
+        if not mt5.initialize():
+            logger.error("MT5 initialization failed")
+            raise Exception("MT5 initialization failed")
 
-    def _initialize(self):
-        try:
-            if not mt5.initialize(
-                path=settings.MT5_PATH,
-                login=settings.MT5_LOGIN,
-                password=settings.MT5_PASSWORD,
-                server=settings.MT5_SERVER,
-                timeout=60000
-            ):
-                logger.error(f"Failed to initialize MetaTrader5: {mt5.last_error()}")
-                return
-            if not mt5.symbol_select(settings.SYMBOL, True):
-                logger.error(f"Failed to select symbol {settings.SYMBOL}: {mt5.last_error()}")
-                mt5.shutdown()
-                return
-            self.initialized = True
-            logger.info("MetaTrader5 initialized successfully")
-        except Exception as e:
-            logger.error(f"Exception during MT5 initialization: {str(e)}")
+    def get_symbol_info(self, symbol):
+        symbol_info = mt5.symbol_info(symbol)
+        if not symbol_info:
+            logger.error(f"Failed to get symbol info for {symbol}")
+        return symbol_info
 
-    def execute_market_trade(self, trade, price: float) -> bool:
-        if not self.initialized:
-            logger.error("MT5 not initialized, cannot execute trade")
-            return False
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "symbol": trade.symbol,
-            "volume": trade.volume,
-            "type": mt5.ORDER_TYPE_BUY if trade.trade_type == "BUY" else mt5.ORDER_TYPE_SELL,
-            "price": price,
-            "sl": trade.stop_loss,
-            "tp": trade.take_profit,
-            "comment": "Trade",
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC,
-            "magic": int(trade.trade_id.replace("-", ""))
-        }
-        result = mt5.order_send(request)
-        if result.retcode == mt5.TRADE_RETCODE_DONE:
-            trade.ticket = result.order
-            logger.info(f"Executed trade: {trade.trade_id}, Symbol: {trade.symbol}, Type: {trade.trade_type}, Price: {price}")
-            return True
-        logger.error(f"Failed to execute trade: {trade.trade_id}. Error: {result.comment}")
-        return False
+    def get_symbol_tick(self, symbol):
+        tick = mt5.symbol_info_tick(symbol)
+        if not tick:
+            logger.error(f"Failed to get tick data for {symbol}")
+        return tick
 
-    def place_pending_order(self, trade) -> bool:
-        if not self.initialized:
-            logger.error("MT5 not initialized, cannot place order")
-            return False
-        order_types = {
-            "BUY_LIMIT": mt5.ORDER_TYPE_BUY_LIMIT,
-            "SELL_LIMIT": mt5.ORDER_TYPE_SELL_LIMIT,
-            "BUY_STOP": mt5.ORDER_TYPE_BUY_STOP,
-            "SELL_STOP": mt5.ORDER_TYPE_SELL_STOP
-        }
-        request = {
-            "action": mt5.TRADE_ACTION_PENDING,
-            "symbol": trade.symbol,
-            "volume": trade.volume,
-            "type": order_types[trade.order_type],
-            "price": trade.entry_price,
-            "sl": trade.stop_loss,
-            "tp": trade.take_profit,
-            "comment": "Pending",
-            "type_time": mt5.ORDER_TIME_SPECIFIED if trade.expiration > 0 else mt5.ORDER_TIME_GTC,
-            "expiration": trade.expiration if trade.expiration > 0 else 0,
-            "type_filling": mt5.ORDER_FILLING_IOC,
-            "magic": int(trade.trade_id.replace("-", ""))
-        }
-        result = mt5.order_send(request)
-        if result.retcode == mt5.TRADE_RETCODE_DONE:
-            trade.ticket = result.order
-            logger.info(f"Placed pending order: {trade.trade_id}, Symbol: {trade.symbol}, Type: {trade.trade_type}")
-            return True
-        logger.error(f"Failed to place pending order: {trade.trade_id}. Error: {result.comment}")
-        return False
+    def get_account_info(self):
+        account_info = mt5.account_info()
+        if not account_info:
+            logger.error("Failed to get account info")
+        return account_info
 
-    def close_order(self, ticket: int, symbol: str, volume: float, position_type: int) -> bool:
-        if not self.initialized:
-            logger.error("MT5 not initialized, cannot close order")
-            return False
-        request = {
-            "action": mt5.TRADE_ACTION_DEAL,
-            "symbol": symbol,
-            "volume": volume,
-            "type": mt5.ORDER_TYPE_SELL if position_type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY,
-            "position": ticket,
-            "price": mt5.symbol_info_tick(symbol).bid if position_type == mt5.POSITION_TYPE_BUY else mt5.symbol_info_tick(symbol).ask,
-            "type_time": mt5.ORDER_TIME_GTC,
-            "type_filling": mt5.ORDER_FILLING_IOC
-        }
-        result = mt5.order_send(request)
-        return result.retcode == mt5.TRADE_RETCODE_DONE
+    def check_margin(self, symbol: str, volume: float, trade_type: str) -> bool:
+        with self.margin_lock:
+            try:
+                symbol_info = self.get_symbol_info(symbol)
+                if not symbol_info:
+                    logger.error(f"Failed to get symbol info for {symbol}")
+                    return False
 
-    def get_balance(self) -> float:
-        if not self.initialized:
-            logger.error("MT5 not initialized, cannot get balance")
-            return 0.0
-        return mt5.account_info().balance
+                tick = self.get_symbol_tick(symbol)
+                if not tick:
+                    logger.error(f"Failed to get tick data for {symbol}")
+                    return False
+                market_price = tick.bid if trade_type == "SELL" else tick.ask
+
+                account_info = self.get_account_info()
+                if not account_info:
+                    logger.error("Failed to get account info")
+                    return False
+
+                contract_size = symbol_info.trade_contract_size
+                leverage = account_info.leverage
+                required_margin = (volume * contract_size * market_price) / leverage
+
+                free_margin = account_info.margin_free
+
+                logger.info(
+                    f"Margin check for {symbol}: "
+                    f"Volume={volume}, ContractSize={contract_size}, Price={market_price}, "
+                    f"Leverage={leverage}, RequiredMargin={required_margin}, FreeMargin={free_margin}"
+                )
+
+                return free_margin >= required_margin
+            except Exception as e:
+                logger.error(f"Error checking margin for {symbol}: {str(e)}")
+                return False
 
     def get_positions(self):
-        if not self.initialized:
-            return []
-        return mt5.positions_get()
+        positions = mt5.positions_get()
+        if positions is None:
+            logger.error("Failed to get positions")
+        return positions if positions is not None else []
 
     def get_orders(self):
-        if not self.initialized:
-            return []
-        return mt5.orders_get()
+        orders = mt5.orders_get()
+        if orders is None:
+            logger.error("Failed to get orders")
+        return orders if orders is not None else []
+    
+    def get_symbol_filling_mode(self, symbol: str) -> int:
+        try:
+            symbol_info = self.get_symbol_info(symbol)
+            if not symbol_info:
+                logger.error(f"Cannot get filling mode: Symbol {symbol} not found")
+                raise ValueError(f"Symbol {symbol} not found")
 
-    def get_symbol_info(self, symbol: str):
-        if not self.initialized:
+            filling_mode = symbol_info.filling_mode
+
+            if filling_mode & 1:
+                return mt5.ORDER_FILLING_FOK
+            elif filling_mode & 2:
+                return mt5.ORDER_FILLING_IOC
+            elif filling_mode & 4:
+                return mt5.ORDER_FILLING_RETURN
+            else:
+                logger.error(f"No supported filling modes for {symbol}")
+                raise ValueError(f"No supported filling modes for {symbol}")
+        except Exception as e:
+            logger.error(f"Error getting filling mode for {symbol}: {str(e)}")
+            raise
+
+    def close_order(self, ticket, symbol, volume, order_type):
+        try:
+            request = {
+                "action": mt5.TRADE_ACTION_CLOSE,
+                "position": ticket if order_type in [mt5.POSITION_TYPE_BUY, mt5.POSITION_TYPE_SELL] else None,
+                "order": ticket if order_type in [mt5.ORDER_TYPE_BUY_LIMIT, mt5.ORDER_TYPE_SELL_LIMIT,
+                                                mt5.ORDER_TYPE_BUY_STOP, mt5.ORDER_TYPE_SELL_STOP] else None,
+                "symbol": symbol,
+                "volume": volume,
+                "type": mt5.ORDER_TYPE_BUY if order_type == mt5.POSITION_TYPE_SELL else mt5.ORDER_TYPE_SELL,
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": self.get_symbol_filling_mode(symbol),
+            }
+            result = mt5.order_send(request)
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info(f"Closed order/position {ticket} for {symbol}")
+                return True
+            else:
+                logger.error(f"Failed to close order/position {ticket} for {symbol}: {result.comment}")
+                return False
+        except Exception as e:
+            logger.error(f"Error closing order/position {ticket} for {symbol}: {str(e)}")
+            return False
+
+    def order_send(self, request):
+        try:
+            result = mt5.order_send(request)
+            if result is None:
+                logger.error(f"Failed to send order: {request}")
+            return result
+        except Exception as e:
+            logger.error(f"Error sending order: {str(e)}")
             return None
-        return mt5.symbol_info(symbol)
-
-    def get_symbol_tick(self, symbol: str):
-        if not self.initialized:
-            logger.error("MT5 not initialized, cannot get symbol tick")
-            return None
-        return mt5.symbol_info_tick(symbol)
-
-    def shutdown(self):
-        if self.initialized:
-            mt5.shutdown()
-            self.initialized = False
-            logger.info("MetaTrader5 connection closed")

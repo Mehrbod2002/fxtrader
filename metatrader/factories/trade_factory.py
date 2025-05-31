@@ -25,11 +25,12 @@ class TradeFactory:
             expiration=int(json_data.get("expiration", 0))
         )
 
-    def create_trade_response(self, trade_id: str, user_id: str, status: str, matched_trade_id: str) -> TradeResponse:
+    def create_trade_response(self, trade_id: str, user_id: str, status: str, matched_volume: float, matched_trade_id: str, remaining_volume: float = 0) -> TradeResponse:
         return TradeResponse(
             trade_id=trade_id,
             user_id=user_id,
             status=status,
+            matched_volume=matched_volume,
             matched_trade_id=matched_trade_id,
             timestamp=float(self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
         )

@@ -2,6 +2,7 @@ import asyncio
 import websockets
 import json
 import time
+import redis
 from config.settings import settings
 from services.trade_manager import TradeManager
 from utils.logger import logger
@@ -14,6 +15,7 @@ class WebSocketClient:
         self.last_ping_sent = 0
         self.reconnect_attempts = 0
         self.missed_pongs = 0
+        self.redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0)
 
     async def initialize(self):
         return await self.connect()
@@ -61,6 +63,7 @@ class WebSocketClient:
             except Exception as e:
                 logger.error(f"Error sending ping: {str(e)}")
                 await self.reconnect()
+
     async def process_messages(self):
         while True:
             try:
@@ -72,14 +75,17 @@ class WebSocketClient:
                     if msg_type == "handshake_response":
                         self.reconnect_attempts = 0
                     elif msg_type == "trade_request":
-                        fa = await self.trade_manager.handle_trade_request(json_data, self.websocket)
-                        print("true or false ", fa)
+                        await self.trade_manager.handle_trade_request(json_data, self.websocket)
                     elif msg_type == "balance_request":
                         await self.trade_manager.handle_balance_request(json_data, self.websocket)
                     elif msg_type == "close_trade_request":
                         await self.trade_manager.handle_close_trade_request(json_data, self.websocket)
                     elif msg_type == "order_stream_request":
-                        await self.trade_manager.handle_order_stream_request(json_data, self.websocket)
+                        user_id = json_data.get("user_id", "")
+                        account_type = json_data.get("account_type", "")
+                        asyncio.create_task(self.trade_manager.stream_orders(user_id, account_type, self.websocket))
+                    elif msg_type == "modify_trade_request":
+                        await self.trade_manager.handle_modify_trade_request(json_data, self.websocket)
                     elif msg_type == "ping":
                         pong = {"type": "pong", "timestamp": float(self.trade_manager.get_timestamp())}
                         await self.websocket.send(json.dumps(pong))
@@ -90,6 +96,14 @@ class WebSocketClient:
                         logger.warning(f"Unknown message type: {msg_type}")
                 except json.JSONDecodeError:
                     logger.error(f"Invalid JSON: {message}")
+                except ConnectionClosed:
+                    logger.error("WebSocket closed during message processing")
+                    await self.reconnect()
+                except asyncio.TimeoutError:
+                    logger.warning("Message processing timeout")
+                    self.missed_pongs += 1
+                    if self.missed_pongs >= 5:
+                        await self.reconnect()
             except asyncio.TimeoutError:
                 logger.warning("Read timeout, checking connection")
                 self.missed_pongs += 1
@@ -98,9 +112,6 @@ class WebSocketClient:
                     await self.reconnect()
             except ConnectionClosed:
                 logger.error("WebSocket connection closed, reconnecting")
-                await self.reconnect()
-            except Exception as e:
-                logger.error(f"WebSocket error: {str(e)}")
                 await self.reconnect()
 
     async def handle_ping(self):
@@ -124,14 +135,19 @@ class WebSocketClient:
             except:
                 pass
         self.websocket = None
+        self.reconnect_attempts += 1
+        if self.reconnect_attempts >= settings.MAX_RECONNECT_ATTEMPTS:
+            logger.error("Max reconnect attempts reached")
+            return
         if await self.connect():
-            for message in self.trade_manager.trade_repository.message_queue[:]:
+            while self.redis_client.llen("message_queue") > 0:
+                message = self.redis_client.lpop("message_queue").decode()
                 try:
                     await self.websocket.send(message)
                     logger.info(f"Resent queued message: {message}")
-                    self.trade_manager.trade_repository.message_queue.remove(message)
                 except Exception as e:
                     logger.error(f"Failed to resend queued message: {str(e)}")
+                    self.redis_client.lpush("message_queue", message)
 
     async def deinitialize(self):
         if self.websocket:
