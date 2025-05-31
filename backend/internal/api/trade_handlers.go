@@ -7,17 +7,18 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/mehrbod2002/fxtrader/interfaces"
 	"github.com/mehrbod2002/fxtrader/internal/models"
 	"github.com/mehrbod2002/fxtrader/internal/service"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type TradeHandler struct {
-	tradeService service.TradeService
+	tradeService interfaces.TradeService
 	logService   service.LogService
 }
 
-func NewTradeHandler(tradeService service.TradeService, logService service.LogService) *TradeHandler {
+func NewTradeHandler(tradeService interfaces.TradeService, logService service.LogService) *TradeHandler {
 	return &TradeHandler{tradeService: tradeService, logService: logService}
 }
 
@@ -28,7 +29,7 @@ func NewTradeHandler(tradeService service.TradeService, logService service.LogSe
 // @Produce json
 // @Security BearerAuth
 // @Param trade body TradeRequest true "Trade order data"
-// @Success 201 {object} map[string]string "Trade placed"
+// @Success 201 {object} map[string]interface{} "Trade placed"
 // @Failure 400 {object} map[string]string "Invalid JSON or parameters"
 // @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 500 {object} map[string]string "Server error"
@@ -52,7 +53,7 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 	}
 
 	userID := c.GetString("user_id")
-	trade, err := h.tradeService.PlaceTrade(userID, req.SymbolName, req.AccountType, req.TradeType, req.OrderType, req.Leverage, req.Volume, req.EntryPrice, req.StopLoss, req.TakeProfit, req.Expiration)
+	trade, tradeResponse, err := h.tradeService.PlaceTrade(userID, req.SymbolName, req.AccountType, req.TradeType, req.OrderType, req.Leverage, req.Volume, req.EntryPrice, req.StopLoss, req.TakeProfit, req.Expiration)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -69,7 +70,13 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 		log.Printf("error: %v", err)
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"status": "Trade placed", "trade_id": trade.ID.Hex()})
+	c.JSON(http.StatusCreated, gin.H{
+		"status":           "Trade placed",
+		"trade_id":         trade.ID.Hex(),
+		"trade_status":     trade.Status,
+		"matched_trade_id": trade.MatchedTradeID,
+		"mt5_response":     tradeResponse,
+	})
 }
 
 // @Summary Close a trade
@@ -79,7 +86,7 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path string true "Trade ID"
-// @Success 200 {object} map[string]string "Trade close requested"
+// @Success 200 {object} map[string]interface{} "Trade close requested"
 // @Failure 400 {object} map[string]string "Invalid trade ID"
 // @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 403 {object} map[string]string "Forbidden (trade belongs to another user)"
@@ -107,11 +114,13 @@ func (h *TradeHandler) CloseTrade(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Trade is not open"})
 		return
 	}
-	err = h.tradeService.CloseTrade(tradeID, userID, trade.AccountType)
+
+	closeResponse, err := h.tradeService.CloseTrade(tradeID, userID, trade.AccountType)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
 	userObjID, _ := primitive.ObjectIDFromHex(userID)
 	metadata := map[string]interface{}{
 		"user_id":  userID,
@@ -120,7 +129,12 @@ func (h *TradeHandler) CloseTrade(c *gin.Context) {
 	if err := h.logService.LogAction(userObjID, "CloseTrade", "Trade close requested", c.ClientIP(), metadata); err != nil {
 		log.Printf("error: %v", err)
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "Trade close requested"})
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":       "Trade closed",
+		"trade_id":     tradeID,
+		"mt5_response": closeResponse,
+	})
 }
 
 // @Summary Stream user trades
@@ -128,7 +142,7 @@ func (h *TradeHandler) CloseTrade(c *gin.Context) {
 // @Tags Trades
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} map[string]string "Streaming started"
+// @Success 200 {object} map[string]interface{} "Streaming started"
 // @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /trades/stream [get]
@@ -136,11 +150,12 @@ func (h *TradeHandler) StreamTrades(c *gin.Context) {
 	userID := c.GetString("user_id")
 	accountType := c.GetString("account_type")
 
-	err := h.tradeService.StreamTrades(userID, accountType)
+	streamResponse, err := h.tradeService.StreamTrades(userID, accountType)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
 	userObjID, _ := primitive.ObjectIDFromHex(userID)
 	metadata := map[string]interface{}{
 		"user_id": userID,
@@ -148,7 +163,11 @@ func (h *TradeHandler) StreamTrades(c *gin.Context) {
 	if err := h.logService.LogAction(userObjID, "StreamTrades", "Trade streaming started", c.ClientIP(), metadata); err != nil {
 		log.Printf("error: %v", err)
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "Streaming started"})
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":       "Streaming started",
+		"mt5_response": streamResponse,
+	})
 }
 
 // @Summary Get user trades
@@ -223,13 +242,13 @@ func (h *TradeHandler) GetTrade(c *gin.Context) {
 // @Tags Trades
 // @Accept json
 // @Produce json
-// @Param response body service.TradeResponse true "Trade response data"
+// @Param response body interfaces.TradeResponse true "Trade response data"
 // @Success 200 {object} map[string]string "Response processed"
 // @Failure 400 {object} map[string]string "Invalid JSON or parameters"
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /trade-response [post]
 func (h *TradeHandler) HandleTradeResponse(c *gin.Context) {
-	var response service.TradeResponse
+	var response interfaces.TradeResponse
 	if err := c.ShouldBindJSON(&response); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
@@ -271,6 +290,49 @@ func (h *TradeHandler) GetAllTrades(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, trades)
+}
+
+// @Summary Modify a pending trade
+// @Description Modify the entry price and/or volume of a pending trade
+// @Tags Trades
+// @Accept json
+// @Produce json
+// @Param id path string true "Trade ID"
+// @Param request body ModifyTradeRequest true "Modify trade request"
+// @Success 200 {object} interfaces.TradeResponse
+// @Failure 400 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Failure 500 {object} map[string]string
+// @Failure 408 {object} map[string]string
+// @Security Bearer
+// @Router /trades/{id}/modify [put]
+func (h *TradeHandler) ModifyTrade(c *gin.Context) {
+	tradeID := c.Param("id")
+	userID := c.GetString("user_id")
+
+	var req ModifyTradeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	response, err := h.tradeService.ModifyTrade(c.Request.Context(), userID, tradeID, req.AccountType, req.EntryPrice, req.Volume)
+	if err != nil {
+		if err.Error() == "timeout waiting for modify response" {
+			c.JSON(http.StatusRequestTimeout, gin.H{"error": err.Error()})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+type ModifyTradeRequest struct {
+	EntryPrice  float64 `json:"entry_price" binding:"omitempty,gt=0"`
+	Volume      float64 `json:"volume" binding:"omitempty,gt=0"`
+	AccountType string  `json:"account_type" binding:"required"`
 }
 
 type TradeRequest struct {

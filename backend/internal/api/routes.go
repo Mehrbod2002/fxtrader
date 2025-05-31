@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mehrbod2002/fxtrader/interfaces"
 	"github.com/mehrbod2002/fxtrader/internal/config"
 	"github.com/mehrbod2002/fxtrader/internal/middleware"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
@@ -27,7 +28,7 @@ func SetupRoutes(
 	symbolService service.SymbolService,
 	logService service.LogService,
 	ruleService service.RuleService,
-	tradeService service.TradeService,
+	tradeService interfaces.TradeService,
 	transactionService service.TransactionService,
 	wsHandler *ws.WebSocketHandler,
 	leaderRequestService service.LeaderRequestService,
@@ -100,6 +101,9 @@ func SetupRoutes(
 			user.POST("/trades", tradeHandler.PlaceTrade)
 			user.GET("/trades", tradeHandler.GetUserTrades)
 			user.GET("/trades/:id", tradeHandler.GetTrade)
+			user.POST("/trades/:id/close", tradeHandler.CloseTrade)
+			user.GET("/trades/stream", tradeHandler.StreamTrades)
+			user.PUT("/trades/:id/modify", tradeHandler.ModifyTrade)
 			user.POST("/transactions", transactionHandler.CreateTransaction)
 			user.GET("/transactions", transactionHandler.GetUserTransactions)
 			user.POST("/alerts", alertHandler.CreateAlert)

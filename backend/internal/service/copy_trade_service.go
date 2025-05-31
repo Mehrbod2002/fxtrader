@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 
+	"github.com/mehrbod2002/fxtrader/interfaces"
 	"github.com/mehrbod2002/fxtrader/internal/models"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
 
@@ -16,21 +17,21 @@ type CopyTradeService interface {
 	GetSubscription(id string) (*models.CopyTradeSubscription, error)
 	GetSubscriptionsByFollowerID(followerID string) ([]*models.CopyTradeSubscription, error)
 	MirrorTrade(leaderTrade *models.TradeHistory, accountType string) error
-	SetTradeService(tradeService TradeService)
+	SetTradeService(tradeService interfaces.TradeService)
 }
 
 type copyTradeService struct {
 	copyTradeRepo repository.CopyTradeRepository
-	tradeService  TradeService
+	tradeService  interfaces.TradeService
 	userService   UserService
 	logService    LogService
 }
 
-func (s *copyTradeService) SetTradeService(tradeService TradeService) {
+func (s *copyTradeService) SetTradeService(tradeService interfaces.TradeService) {
 	s.tradeService = tradeService
 }
 
-func NewCopyTradeService(copyTradeRepo repository.CopyTradeRepository, tradeService TradeService, userService UserService, logService LogService) CopyTradeService {
+func NewCopyTradeService(copyTradeRepo repository.CopyTradeRepository, tradeService interfaces.TradeService, userService UserService, logService LogService) CopyTradeService {
 	return &copyTradeService{
 		copyTradeRepo: copyTradeRepo,
 		tradeService:  tradeService,
@@ -128,7 +129,7 @@ func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory, account
 		}
 
 		followerVolume := math.Min(sub.AllocatedAmount, followerBalance) * volumeRatio
-		followerTrade, err := s.tradeService.PlaceTrade(
+		followerTrade, _, err := s.tradeService.PlaceTrade(
 			sub.FollowerID,
 			leaderTrade.Symbol,
 			accountType,

@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/mehrbod2002/fxtrader/internal/service"
+	"github.com/mehrbod2002/fxtrader/interfaces"
 )
 
 const (
@@ -25,38 +26,35 @@ const (
 	maxMissedPongs          = 5
 )
 
-type HandlerFunc func(message map[string]interface{}, conn *websocket.Conn) error
+type HandlerFunc func(message map[string]interface{}, client *Client) error
 
 type WebSocketServer struct {
-	listenAddr      string
-	handlers        map[string]HandlerFunc
-	handlersMu      sync.RWMutex
-	responseChan    chan interface{}
-	orderStreamChan chan interface{}
-	clients         map[string]*Client
-	clientsMu       sync.RWMutex
-	tradeService    service.TradeService
-	ctx             context.Context
-	cancel          context.CancelFunc
-	upgrader        websocket.Upgrader
+	listenAddr   string
+	handlers     map[string]HandlerFunc
+	handlersMu   sync.RWMutex
+	clients      map[string]*Client
+	clientsMu    sync.RWMutex
+	tradeService interfaces.TradeService
+	ctx          context.Context
+	cancel       context.CancelFunc
+	upgrader     websocket.Upgrader
 }
 
 type Client struct {
 	conn       *websocket.Conn
 	cancelPing context.CancelFunc
 	clientID   string
+	writeMu    sync.Mutex
 }
 
 func NewWebSocketServer(listenPort int) (*WebSocketServer, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &WebSocketServer{
-		listenAddr:      fmt.Sprintf(":%d", listenPort),
-		handlers:        make(map[string]HandlerFunc),
-		responseChan:    make(chan interface{}, 100),
-		orderStreamChan: make(chan interface{}, 100),
-		clients:         make(map[string]*Client),
-		ctx:             ctx,
-		cancel:          cancel,
+		listenAddr: fmt.Sprintf(":%d", listenPort),
+		handlers:   make(map[string]HandlerFunc),
+		clients:    make(map[string]*Client),
+		ctx:        ctx,
+		cancel:     cancel,
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  8192,
 			WriteBufferSize: 8192,
@@ -71,7 +69,7 @@ func (s *WebSocketServer) RegisterHandler(msgType string, handler HandlerFunc) {
 	s.handlers[msgType] = handler
 }
 
-func (s *WebSocketServer) Start(tradeService service.TradeService) error {
+func (s *WebSocketServer) Start(tradeService interfaces.TradeService) error {
 	s.tradeService = tradeService
 
 	s.RegisterHandler("handshake", s.handleHandshake)
@@ -80,6 +78,9 @@ func (s *WebSocketServer) Start(tradeService service.TradeService) error {
 	s.RegisterHandler("disconnect", s.handleDisconnect)
 	s.RegisterHandler("close_trade_response", s.handleCloseTradeResponse)
 	s.RegisterHandler("order_stream_response", s.handleOrderStreamResponse)
+	s.RegisterHandler("trade_response", s.handleTradeResponse)
+	s.RegisterHandler("balance_response", s.handleBalanceResponse)
+	s.RegisterHandler("balance_stream_response", s.handleBalanceStreamResponse)
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := s.upgrader.Upgrade(w, r, nil)
@@ -100,6 +101,59 @@ func (s *WebSocketServer) Start(tradeService service.TradeService) error {
 	return nil
 }
 
+func (s *WebSocketServer) handleTradeResponse(msg map[string]interface{}, client *Client) error {
+	log.Printf("Raw trade response message: %+v", msg)
+	var response interfaces.TradeResponse
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal trade response: %v", err)
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal trade response: %v", err)
+	}
+	log.Printf("Forwarding trade response to TradeService: %+v", response)
+	return s.tradeService.HandleTradeResponse(response)
+}
+
+func (s *WebSocketServer) handleCloseTradeResponse(msg map[string]interface{}, client *Client) error {
+	var response interfaces.CloseTradeResponse
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal close trade response: %v", err)
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal close trade response: %v", err)
+	}
+	log.Printf("Forwarding close trade response to TradeService: %+v", response)
+	return s.tradeService.HandleCloseTradeResponse(response)
+}
+
+func (s *WebSocketServer) handleOrderStreamResponse(msg map[string]interface{}, client *Client) error {
+	var response interfaces.OrderStreamResponse
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal order stream response: %v", err)
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal order stream response: %v", err)
+	}
+	log.Printf("Forwarding order stream response to TradeService: %+v", response)
+	return s.tradeService.HandleOrderStreamResponse(response)
+}
+
+func (s *WebSocketServer) handleBalanceResponse(msg map[string]interface{}, client *Client) error {
+	var response interfaces.BalanceResponse
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal balance response: %v", err)
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal balance response: %v", err)
+	}
+	log.Printf("Forwarding balance response to TradeService: %+v", response)
+	return nil
+}
+
 func (s *WebSocketServer) addClient(clientID string, conn *websocket.Conn, cancelPing context.CancelFunc) {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
@@ -111,14 +165,21 @@ func (s *WebSocketServer) addClient(clientID string, conn *websocket.Conn, cance
 			"reason":    "New connection established",
 			"timestamp": time.Now().Unix(),
 		}
-		if err := s.sendJSONMessage(oldClient.conn, disconnectMsg); err != nil {
+		oldClient.writeMu.Lock()
+		if err := s.sendJSONMessage(oldClient, disconnectMsg); err != nil {
 			log.Printf("error: %v", err)
 		}
+		oldClient.writeMu.Unlock()
 		oldClient.conn.Close()
 		oldClient.cancelPing()
 	}
 
-	s.clients[clientID] = &Client{conn: conn, cancelPing: cancelPing, clientID: clientID}
+	s.clients[clientID] = &Client{
+		conn:       conn,
+		cancelPing: cancelPing,
+		clientID:   clientID,
+		writeMu:    sync.Mutex{},
+	}
 	log.Printf("Added client %s to connection pool", clientID)
 
 	if s.tradeService != nil {
@@ -131,8 +192,12 @@ func (s *WebSocketServer) removeClient(clientID string) {
 	defer s.clientsMu.Unlock()
 
 	if client, exists := s.clients[clientID]; exists {
+		client.writeMu.Lock()
 		client.cancelPing()
-		client.conn.Close()
+		if err := client.conn.Close(); err != nil {
+			log.Printf("Error closing connection for client %s: %v", clientID, err)
+		}
+		client.writeMu.Unlock()
 		delete(s.clients, clientID)
 		log.Printf("Removed client %s from connection pool", clientID)
 	}
@@ -145,7 +210,7 @@ func (s *WebSocketServer) isClientConnected(clientID string) bool {
 	return exists
 }
 
-func (s *WebSocketServer) startPingMonitor(conn *websocket.Conn, clientID string, ctx context.Context) {
+func (s *WebSocketServer) startPingMonitor(client *Client, ctx context.Context) {
 	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
@@ -154,11 +219,11 @@ func (s *WebSocketServer) startPingMonitor(conn *websocket.Conn, clientID string
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("Ping monitor stopped for client %s", clientID)
+			log.Printf("Ping monitor stopped for client %s", client.clientID)
 			return
 		case <-ticker.C:
-			if !s.isClientConnected(clientID) {
-				log.Printf("Client %s not found in connection pool, stopping ping monitor", clientID)
+			if !s.isClientConnected(client.clientID) {
+				log.Printf("Client %s not found in connection pool, stopping ping monitor", client.clientID)
 				return
 			}
 
@@ -166,37 +231,39 @@ func (s *WebSocketServer) startPingMonitor(conn *websocket.Conn, clientID string
 				"type":      "ping",
 				"timestamp": time.Now().Unix(),
 			}
-			if err := s.sendJSONMessage(conn, pingMsg); err != nil {
-				log.Printf("Failed to send ping to client %s: %v", clientID, err)
+			if err := s.sendJSONMessage(client, pingMsg); err != nil {
+				log.Printf("Failed to send ping to client %s: %v", client.clientID, err)
 				missedPongs++
 				if missedPongs >= maxMissedPongs {
-					log.Printf("Client %s missed %d pongs, closing connection", clientID, maxMissedPongs)
-					s.removeClient(clientID)
+					log.Printf("Client %s missed %d pongs, closing connection", client.clientID, maxMissedPongs)
+					s.removeClient(client.clientID)
 					return
 				}
 				continue
 			}
-			log.Printf("Sent ping to client %s", clientID)
+			log.Printf("Sent ping to client %s", client.clientID)
 		}
 	}
 }
 
-func (s *WebSocketServer) handlePong(msg map[string]interface{}, conn *websocket.Conn) error {
+func (s *WebSocketServer) handlePong(msg map[string]interface{}, client *Client) error {
 	return nil
 }
 
-func (s *WebSocketServer) handlePing(msg map[string]interface{}, conn *websocket.Conn) error {
-	clientID := conn.RemoteAddr().String()
+func (s *WebSocketServer) handlePing(msg map[string]interface{}, client *Client) error {
+	if client == nil || client.conn == nil {
+		return fmt.Errorf("nil client or connection")
+	}
 
 	pongMsg := map[string]interface{}{
 		"type":      "pong",
 		"timestamp": time.Now().Unix(),
 	}
-	if err := s.sendJSONMessage(conn, pongMsg); err != nil {
-		log.Printf("Failed to send pong to client %s: %v", clientID, err)
+	if err := s.sendJSONMessage(client, pongMsg); err != nil {
+		log.Printf("Failed to send pong to client %s: %v", client.clientID, err)
 		return fmt.Errorf("failed to send pong: %v", err)
 	}
-	log.Printf("Sent pong to client %s", clientID)
+	log.Printf("Sent pong to client %s", client.clientID)
 	return nil
 }
 
@@ -204,7 +271,7 @@ func (s *WebSocketServer) handleConnection(conn *websocket.Conn, ctx context.Con
 	defer conn.Close()
 
 	conn.SetReadLimit(maxMessageSize)
-	tempClientID := conn.RemoteAddr().String()
+	tempClientID := uuid.New().String()
 	retryCount := 0
 
 	for {
@@ -230,6 +297,7 @@ func (s *WebSocketServer) handleConnection(conn *websocket.Conn, ctx context.Con
 				if retryCount >= maxRetries {
 					log.Printf("Max retries (%d) reached for %s", maxRetries, tempClientID)
 					return
+
 				}
 				continue
 			}
@@ -260,10 +328,23 @@ func (s *WebSocketServer) processMessage(message []byte, conn *websocket.Conn, t
 		}
 		*tempClientID = clientID
 		ctx, cancel := context.WithCancel(s.ctx)
+		client := &Client{
+			conn:       conn,
+			cancelPing: cancel,
+			clientID:   clientID,
+			writeMu:    sync.Mutex{},
+		}
 		s.addClient(clientID, conn, cancel)
-		go s.startPingMonitor(conn, clientID, ctx)
+		go s.startPingMonitor(client, ctx)
 		log.Printf("Handshake successful for client %s", clientID)
 		return nil
+	}
+
+	s.clientsMu.RLock()
+	client, exists := s.clients[*tempClientID]
+	s.clientsMu.RUnlock()
+	if !exists {
+		return fmt.Errorf("client %s not found", *tempClientID)
 	}
 
 	s.handlersMu.RLock()
@@ -275,11 +356,14 @@ func (s *WebSocketServer) processMessage(message []byte, conn *websocket.Conn, t
 		return fmt.Errorf("unknown message type: %s", msgType)
 	}
 
-	return handler(msg, conn)
+	return handler(msg, client)
 }
 
-func (s *WebSocketServer) sendJSONMessage(conn *websocket.Conn, msg interface{}) error {
-	if err := conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
+func (s *WebSocketServer) sendJSONMessage(client *Client, msg interface{}) error {
+	client.writeMu.Lock()
+	defer client.writeMu.Unlock()
+
+	if err := client.conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
 		return fmt.Errorf("failed to set write deadline: %v", err)
 	}
 
@@ -288,10 +372,10 @@ func (s *WebSocketServer) sendJSONMessage(conn *websocket.Conn, msg interface{})
 		return fmt.Errorf("failed to marshal JSON: %v", err)
 	}
 
-	return conn.WriteMessage(websocket.TextMessage, data)
+	return client.conn.WriteMessage(websocket.TextMessage, data)
 }
 
-func (s *WebSocketServer) handleHandshake(msg map[string]interface{}, conn *websocket.Conn) error {
+func (s *WebSocketServer) handleHandshake(msg map[string]interface{}, client *Client) error {
 	response := map[string]interface{}{
 		"type":      "handshake_response",
 		"status":    "success",
@@ -300,42 +384,15 @@ func (s *WebSocketServer) handleHandshake(msg map[string]interface{}, conn *webs
 		"timestamp": time.Now().Unix(),
 	}
 
-	return s.sendJSONMessage(conn, response)
+	return s.sendJSONMessage(client, response)
 }
 
-func (s *WebSocketServer) handleDisconnect(msg map[string]interface{}, conn *websocket.Conn) error {
+func (s *WebSocketServer) handleDisconnect(msg map[string]interface{}, client *Client) error {
 	reason, _ := msg["reason"].(string)
-	clientID := conn.RemoteAddr().String()
+	clientID := client.conn.RemoteAddr().String()
 	log.Printf("Client %s initiated disconnect. Reason: %s", clientID, reason)
 	s.removeClient(clientID)
-	conn.Close()
-	return nil
-}
-
-func (s *WebSocketServer) handleCloseTradeResponse(msg map[string]interface{}, conn *websocket.Conn) error {
-	var response service.CloseTradeResponse
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal close trade response: %v", err)
-	}
-	if err := json.Unmarshal(data, &response); err != nil {
-		return fmt.Errorf("failed to unmarshal close trade response: %v", err)
-	}
-
-	s.responseChan <- response
-	return nil
-}
-
-func (s *WebSocketServer) handleOrderStreamResponse(msg map[string]interface{}, conn *websocket.Conn) error {
-	var response service.OrderStreamResponse
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("failed to marshal order stream response: %v", err)
-	}
-	if err := json.Unmarshal(data, &response); err != nil {
-		return fmt.Errorf("failed to unmarshal order stream response: %v", err)
-	}
-	s.orderStreamChan <- response
+	client.conn.Close()
 	return nil
 }
 
@@ -347,7 +404,7 @@ func (s *WebSocketServer) SendTradeRequest(tradeRequest map[string]interface{}) 
 	}
 	var lastErr error
 	for clientID, client := range s.clients {
-		if err := s.sendJSONMessage(client.conn, tradeRequest); err != nil {
+		if err := s.sendJSONMessage(client, tradeRequest); err != nil {
 			log.Printf("Failed to send trade request to client %s: %v", clientID, err)
 			lastErr = err
 		} else {
@@ -366,7 +423,7 @@ func (s *WebSocketServer) SendCloseTradeRequest(closeRequest map[string]interfac
 	}
 	var lastErr error
 	for clientID, client := range s.clients {
-		if err := s.sendJSONMessage(client.conn, closeRequest); err != nil {
+		if err := s.sendJSONMessage(client, closeRequest); err != nil {
 			log.Printf("Failed to send close trade request to client %s: %v", clientID, err)
 			lastErr = err
 		} else {
@@ -385,11 +442,62 @@ func (s *WebSocketServer) SendOrderStreamRequest(streamRequest map[string]interf
 	}
 	var lastErr error
 	for clientID, client := range s.clients {
-		if err := s.sendJSONMessage(client.conn, streamRequest); err != nil {
+		if err := s.sendJSONMessage(client, streamRequest); err != nil {
 			log.Printf("Failed to send order stream request to client %s: %v", clientID, err)
 			lastErr = err
 		} else {
 			log.Printf("Order stream request sent to client %s (account_type: %v)", clientID, streamRequest["account_type"])
+			return nil
+		}
+	}
+	return lastErr
+}
+
+func (s *WebSocketServer) SendBalanceRequest(balanceRequest map[string]interface{}) error {
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+	if len(s.clients) == 0 {
+		return fmt.Errorf("no active MT5 connections available")
+	}
+	var lastErr error
+	for clientID, client := range s.clients {
+		if err := s.sendJSONMessage(client, balanceRequest); err != nil {
+			log.Printf("Failed to send balance request to client %s: %v", clientID, err)
+			lastErr = err
+		} else {
+			log.Printf("Balance request sent to client %s (account_type: %v)", clientID, balanceRequest["account_type"])
+			return nil
+		}
+	}
+	return lastErr
+}
+
+func (s *WebSocketServer) handleBalanceStreamResponse(msg map[string]interface{}, client *Client) error {
+	var response interfaces.BalanceResponse
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal balance stream response: %v", err)
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal balance stream response: %v", err)
+	}
+	log.Printf("Forwarding balance stream response to TradeService: %+v", response)
+	return nil
+}
+
+func (s *WebSocketServer) SendBalanceStreamRequest(streamRequest map[string]interface{}) error {
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+	if len(s.clients) == 0 {
+		return fmt.Errorf("no active MT5 connections available")
+	}
+	var lastErr error
+	for clientID, client := range s.clients {
+		if err := s.sendJSONMessage(client, streamRequest); err != nil {
+			log.Printf("Failed to send balance stream request to client %s: %v", clientID, err)
+			lastErr = err
+		} else {
+			log.Printf("Balance stream request sent to client %s (account_type: %v)", clientID, streamRequest["account_type"])
 			return nil
 		}
 	}

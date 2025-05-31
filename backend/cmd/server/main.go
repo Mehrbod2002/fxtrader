@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/mehrbod2002/fxtrader/internal/api"
-	"github.com/mehrbod2002/fxtrader/internal/config"
+	"github.com/mehrbod2002/fxtrader/internal/config" // Import interfaces package
 	"github.com/mehrbod2002/fxtrader/internal/middleware"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
 	"github.com/mehrbod2002/fxtrader/internal/service"
@@ -69,7 +69,14 @@ func main() {
 	transactionService := service.NewTransactionService(transactionRepo, logService)
 	alertService := service.NewAlertService(alertRepo, symbolRepo, logService)
 	copyTradeService := service.NewCopyTradeService(copyTradeRepo, nil, userService, logService)
-	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, userRepo, logService, hub, copyTradeService)
+
+	// Initialize WebSocketServer before TradeService
+	socketServer, err := socket.NewWebSocketServer(cfg.ListenPort)
+	if err != nil {
+		log.Fatalf("Failed to initialize WebSocket server: %v", err)
+	}
+
+	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, userRepo, logService, hub, socketServer, copyTradeService)
 	if err != nil {
 		log.Fatalf("Failed to initialize trade service: %v", err)
 	}
@@ -78,13 +85,8 @@ func main() {
 
 	copyTradeService.SetTradeService(tradeService)
 
-	socketServer, err := socket.NewWebSocketServer(cfg.ListenPort)
-	if err != nil {
-		log.Fatalf("Failed to initialize TCP server: %v", err)
-	}
-
 	if err := socketServer.Start(tradeService); err != nil {
-		log.Fatalf("Failed to start TCP server: %v", err)
+		log.Fatalf("Failed to start WebSocket server: %v", err)
 	}
 
 	go func() {

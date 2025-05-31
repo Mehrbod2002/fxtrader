@@ -1894,7 +1894,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/service.TradeResponse"
+                            "$ref": "#/definitions/interfaces.TradeResponse"
                         }
                     }
                 ],
@@ -2007,9 +2007,7 @@ const docTemplate = `{
                         "description": "Trade placed",
                         "schema": {
                             "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "additionalProperties": true
                         }
                     },
                     "400": {
@@ -2019,6 +2017,50 @@ const docTemplate = `{
                             "additionalProperties": {
                                 "type": "string"
                             }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/trades/balance/stream": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Initiates streaming of a user's balance",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Trades"
+                ],
+                "summary": "Stream user balance",
+                "responses": {
+                    "200": {
+                        "description": "Balance streaming started",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     },
                     "401": {
@@ -2062,9 +2104,7 @@ const docTemplate = `{
                         "description": "Streaming started",
                         "schema": {
                             "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "additionalProperties": true
                         }
                     },
                     "401": {
@@ -2190,9 +2230,7 @@ const docTemplate = `{
                         "description": "Trade close requested",
                         "schema": {
                             "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "additionalProperties": true
                         }
                     },
                     "400": {
@@ -2233,6 +2271,88 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/trades/{id}/modify": {
+            "put": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "Modify the entry price and/or volume of a pending trade",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Trades"
+                ],
+                "summary": "Modify a pending trade",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Trade ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Modify trade request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.ModifyTradeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/interfaces.TradeResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "408": {
+                        "description": "Request Timeout",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2663,6 +2783,23 @@ const docTemplate = `{
                 }
             }
         },
+        "api.ModifyTradeRequest": {
+            "type": "object",
+            "required": [
+                "account_type"
+            ],
+            "properties": {
+                "account_type": {
+                    "type": "string"
+                },
+                "entry_price": {
+                    "type": "number"
+                },
+                "volume": {
+                    "type": "number"
+                }
+            }
+        },
         "api.OverviewResponse": {
             "type": "object",
             "properties": {
@@ -2832,6 +2969,29 @@ const docTemplate = `{
             "properties": {
                 "is_active": {
                     "type": "boolean"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "interfaces.TradeResponse": {
+            "type": "object",
+            "properties": {
+                "matched_trade_id": {
+                    "type": "string"
+                },
+                "matched_volume": {
+                    "type": "number"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "number"
+                },
+                "trade_id": {
+                    "type": "string"
                 },
                 "user_id": {
                     "type": "string"
@@ -3050,6 +3210,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "commission_deposit": {
+                    "type": "number"
+                },
+                "commission_fee": {
                     "type": "number"
                 },
                 "commission_withdrawal": {
@@ -3309,26 +3472,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "wallet_address": {
-                    "type": "string"
-                }
-            }
-        },
-        "service.TradeResponse": {
-            "type": "object",
-            "properties": {
-                "matched_trade_id": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "timestamp": {
-                    "type": "number"
-                },
-                "trade_id": {
-                    "type": "string"
-                },
-                "user_id": {
                     "type": "string"
                 }
             }

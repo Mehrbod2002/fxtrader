@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type TradeRepository interface {
@@ -45,11 +46,14 @@ func (r *MongoTradeRepository) SaveTrade(trade *models.TradeHistory) error {
 			"matched_trade_id": trade.MatchedTradeID,
 			"close_time":       trade.CloseTime,
 			"stop_loss":        trade.StopLoss,
+			"user_id":          trade.UserID,
 			"take_profit":      trade.TakeProfit,
 			"expiration":       trade.Expiration,
 		},
 	}
-	_, err := r.collection.UpdateOne(ctx, filter, update)
+
+	opts := options.Update().SetUpsert(true)
+	_, err := r.collection.UpdateOne(ctx, filter, update, opts)
 	return err
 }
 

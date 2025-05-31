@@ -10,21 +10,23 @@ import (
 )
 
 type Hub struct {
-	clients        map[string]*models.Client
-	register       chan *models.Client
-	unregister     chan *models.Client
-	broadcast      chan *models.PriceData
-	tradeBroadcast chan *models.TradeHistory
-	mu             sync.RWMutex
+	clients          map[string]*models.Client
+	register         chan *models.Client
+	unregister       chan *models.Client
+	broadcast        chan *models.PriceData
+	balanceBroadcast chan *models.BalanceData
+	tradeBroadcast   chan *models.TradeHistory
+	mu               sync.RWMutex
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		clients:        make(map[string]*models.Client),
-		register:       make(chan *models.Client),
-		unregister:     make(chan *models.Client),
-		broadcast:      make(chan *models.PriceData),
-		tradeBroadcast: make(chan *models.TradeHistory),
+		clients:          make(map[string]*models.Client),
+		register:         make(chan *models.Client),
+		unregister:       make(chan *models.Client),
+		broadcast:        make(chan *models.PriceData),
+		tradeBroadcast:   make(chan *models.TradeHistory),
+		balanceBroadcast: make(chan *models.BalanceData),
 	}
 }
 
@@ -67,6 +69,19 @@ func (h *Hub) Run() {
 				}
 			}
 			h.mu.RUnlock()
+		case balance := <-h.balanceBroadcast:
+			h.mu.RLock()
+			for _, client := range h.clients {
+				subscriptionKey := balance.UserID + ":" + balance.AccountType
+				if client.IsSubscribed(subscriptionKey) {
+					select {
+					case client.SendBalance <- balance:
+					default:
+						log.Printf("Client %s balance buffer full, skipping message", client.ID)
+					}
+				}
+			}
+			h.mu.RUnlock()
 		}
 	}
 }
@@ -94,4 +109,8 @@ func (h *Hub) GetClientCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.clients)
+}
+
+func (h *Hub) BroadcastBalance(balance *models.BalanceData) {
+	h.balanceBroadcast <- balance
 }

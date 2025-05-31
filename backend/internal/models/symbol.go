@@ -17,6 +17,7 @@ type Symbol struct {
 	MaxLot               float64            `json:"max_lot" bson:"max_lot"`
 	Spread               float64            `json:"spread" bson:"spread"`
 	CommissionDeposit    float64            `json:"commission_deposit" bson:"commission_deposit"`
+	CommissionFee        float64            `json:"commission_fee" bson:"commission_fee"`
 	CommissionWithdrawal float64            `json:"commission_withdrawal" bson:"commission_withdrawal"`
 	TradingHours         TradingHours       `json:"trading_hours" bson:"trading_hours"`
 	IsTradingOpen        bool               `json:"is_trading_open" bson:"is_trading_open"`

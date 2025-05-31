@@ -66,6 +66,17 @@ definitions:
     required:
     - admin_reason
     type: object
+  api.ModifyTradeRequest:
+    properties:
+      account_type:
+        type: string
+      entry_price:
+        type: number
+      volume:
+        type: number
+    required:
+    - account_type
+    type: object
   api.OverviewResponse:
     properties:
       pending_trades:
@@ -179,6 +190,21 @@ definitions:
         type: string
     required:
     - user_id
+    type: object
+  interfaces.TradeResponse:
+    properties:
+      matched_trade_id:
+        type: string
+      matched_volume:
+        type: number
+      status:
+        type: string
+      timestamp:
+        type: number
+      trade_id:
+        type: string
+      user_id:
+        type: string
     type: object
   models.ActivceStatus:
     enum:
@@ -323,6 +349,8 @@ definitions:
       category:
         type: string
       commission_deposit:
+        type: number
+      commission_fee:
         type: number
       commission_withdrawal:
         type: number
@@ -497,19 +525,6 @@ definitions:
       username:
         type: string
       wallet_address:
-        type: string
-    type: object
-  service.TradeResponse:
-    properties:
-      matched_trade_id:
-        type: string
-      status:
-        type: string
-      timestamp:
-        type: number
-      trade_id:
-        type: string
-      user_id:
         type: string
     type: object
 info:
@@ -1719,7 +1734,7 @@ paths:
         name: response
         required: true
         schema:
-          $ref: '#/definitions/service.TradeResponse'
+          $ref: '#/definitions/interfaces.TradeResponse'
       produces:
       - application/json
       responses:
@@ -1790,8 +1805,7 @@ paths:
         "201":
           description: Trade placed
           schema:
-            additionalProperties:
-              type: string
+            additionalProperties: true
             type: object
         "400":
           description: Invalid JSON or parameters
@@ -1878,8 +1892,7 @@ paths:
         "200":
           description: Trade close requested
           schema:
-            additionalProperties:
-              type: string
+            additionalProperties: true
             type: object
         "400":
           description: Invalid trade ID
@@ -1916,6 +1929,87 @@ paths:
       summary: Close a trade
       tags:
       - Trades
+  /trades/{id}/modify:
+    put:
+      consumes:
+      - application/json
+      description: Modify the entry price and/or volume of a pending trade
+      parameters:
+      - description: Trade ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Modify trade request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/api.ModifyTradeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/interfaces.TradeResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "408":
+          description: Request Timeout
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - Bearer: []
+      summary: Modify a pending trade
+      tags:
+      - Trades
+  /trades/balance/stream:
+    get:
+      description: Initiates streaming of a user's balance
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Balance streaming started
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Stream user balance
+      tags:
+      - Trades
   /trades/stream:
     get:
       description: Initiates streaming of a user's trade orders
@@ -1925,8 +2019,7 @@ paths:
         "200":
           description: Streaming started
           schema:
-            additionalProperties:
-              type: string
+            additionalProperties: true
             type: object
         "401":
           description: Unauthorized

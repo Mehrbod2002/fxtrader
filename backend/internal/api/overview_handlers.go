@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/mehrbod2002/fxtrader/interfaces"
 	"github.com/mehrbod2002/fxtrader/internal/models"
 
 	"github.com/mehrbod2002/fxtrader/internal/service"
@@ -14,7 +15,7 @@ import (
 
 type OverviewHandler struct {
 	userService        service.UserService
-	tradeService       service.TradeService
+	tradeService       interfaces.TradeService
 	transactionService service.TransactionService
 	symbolService      service.SymbolService
 	logService         service.LogService
@@ -22,7 +23,7 @@ type OverviewHandler struct {
 
 func NewOverviewHandler(
 	userService service.UserService,
-	tradeService service.TradeService,
+	tradeService interfaces.TradeService,
 	transactionService service.TransactionService,
 	symbolService service.SymbolService,
 	logService service.LogService,
