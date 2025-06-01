@@ -11,7 +11,7 @@ from repositories.trade_repository import TradeRepository
 from strategies.trade_strategy import MarketTradeStrategy, PendingTradeStrategy
 from config.settings import settings
 from utils.logger import logger
-
+import redis
 
 class TradeManager:
     def __init__(self, mt5_client: MT5Client, trade_repository: TradeRepository, trade_factory: TradeFactory):
@@ -25,6 +25,43 @@ class TradeManager:
             "BUY_STOP": PendingTradeStrategy(),
             "SELL_STOP": PendingTradeStrategy()
         }
+        self.redis_client = redis.Redis(
+            host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0)
+        self.load_trades_from_redis()
+
+    def load_trades_from_redis(self):
+        try:
+            trade_keys = self.redis_client.keys("trade:*")
+            for key in trade_keys:
+                trade_data = self.redis_client.get(key)
+                if trade_data:
+                    trade_dict = json.loads(trade_data.decode())
+                    trade = self.trade_factory.create_trade(trade_dict)
+                    if self.validate_trade(trade):
+                        self.trade_repository.add_to_pool(trade)
+                        logger.info(f"Loaded trade {trade.trade_id} from Redis")
+                    else:
+                        logger.warning(f"Invalid trade loaded from Redis: {trade.trade_id}")
+                        self.redis_client.delete(key)
+        except Exception as e:
+            logger.error(f"Error loading trades from Redis: {str(e)}")
+
+    def save_trade_to_redis(self, trade: PoolTrade):
+        try:
+            trade_key = f"trade:{trade.trade_id}:{trade.user_id}:{trade.account_type}"
+            trade_data = trade.model_dump_json()
+            self.redis_client.set(trade_key, trade_data)
+            logger.info(f"Saved trade {trade.trade_id} to Redis")
+        except Exception as e:
+            logger.error(f"Error saving trade {trade.trade_id} to Redis: {str(e)}")
+
+    def remove_trade_from_redis(self, trade: PoolTrade):
+        try:
+            trade_key = f"trade:{trade.trade_id}:{trade.user_id}:{trade.account_type}"
+            self.redis_client.delete(trade_key)
+            logger.info(f"Removed trade {trade.trade_id} from Redis")
+        except Exception as e:
+            logger.error(f"Error removing trade {trade.trade_id} from Redis: {str(e)}")
 
     def get_timestamp(self):
         tick = self.mt5_client.get_symbol_tick(settings.SYMBOL)
@@ -33,7 +70,7 @@ class TradeManager:
     def validate_trade(self, trade: PoolTrade) -> bool:
         if trade.trade_type not in ["BUY", "SELL"]:
             return False
-        if trade.order_type not in ["MARKET",  "BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
+        if trade.order_type not in ["MARKET", "BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
             return False
         if trade.account_type not in ["DEMO", "REAL"]:
             return False
@@ -73,14 +110,17 @@ class TradeManager:
             await self.execute_matched_trades(trade, self.trade_repository.pool[match_index], ws)
             if trade.trade_id != "":
                 self.trade_repository.add_to_pool(trade)
+                self.save_trade_to_redis(trade)
                 await self.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
         else:
             self.trade_repository.add_to_pool(trade)
+            self.save_trade_to_redis(trade)
             await self.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
             if trade.order_type == "MARKET":
                 strategy = self.strategies.get(trade.order_type)
                 if strategy and strategy.execute(trade, self.mt5_client) and trade.trade_id != "":
                     await self.send_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "", ws)
+                    self.remove_trade_from_redis(trade)
                 else:
                     logger.warning(
                         f"Market order {trade.trade_id} failed execution, remains PENDING")
@@ -184,8 +224,14 @@ class TradeManager:
             trade2.volume -= match_volume
             if trade2.volume <= 0:
                 trade2.trade_id = ""
+                self.remove_trade_from_redis(trade2)
+            else:
+                self.save_trade_to_redis(trade2)
             if trade1.volume <= 0:
                 trade1.trade_id = ""
+                self.remove_trade_from_redis(trade1)
+            else:
+                self.save_trade_to_redis(trade1)
 
     async def send_trade_response(self, trade_id: str, user_id: str, status: str, matched_trade_id: str, ws, error: str = None, matched_volume: float = 0, remaining_volume: float = 0):
         response = self.trade_factory.create_trade_response(
@@ -237,6 +283,7 @@ class TradeManager:
                         if deal.entry == mt5.DEAL_ENTRY_OUT:
                             profit = deal.profit
                             break
+                    self.remove_trade_from_redis(PoolTrade(trade_id=trade_id, user_id=user_id, account_type=account_type))
         else:
             orders = self.mt5_client.get_orders()
             for order in orders:
@@ -247,6 +294,7 @@ class TradeManager:
                     for trade in self.trade_repository.pool:
                         if trade.ticket == order.ticket and trade.trade_id == trade_id:
                             trade.trade_id = ""
+                            self.remove_trade_from_redis(trade)
                             break
                     break
             else:
@@ -414,6 +462,7 @@ class TradeManager:
                         await self.send_trade_response(trade_id, user_id, "FAILED", "", ws, error="Invalid volume")
                         return
                     trade.volume = new_volume
+                self.save_trade_to_redis(trade)
                 await self.send_trade_response(trade_id, user_id, "MODIFIED", "", ws)
                 return
         await self.send_trade_response(trade_id, user_id, "FAILED", "", ws, error="Trade not found")
@@ -436,6 +485,7 @@ class TradeManager:
                             trade.trade_id, trade.user_id, "EXECUTED", "")
                         self.trade_repository.queue_message(
                             json.dumps(response.model_dump()))
+                        self.remove_trade_from_redis(trade)
             if trade.expiration > 0 and trade.expiration <= current_time:
                 trade.trade_id = ""
                 response = self.trade_factory.create_trade_response(
@@ -443,3 +493,4 @@ class TradeManager:
                 self.trade_repository.queue_message(
                     json.dumps(response.model_dump()))
                 self.trade_repository.remove_from_pool(trade)
+                self.remove_trade_from_redis(trade)

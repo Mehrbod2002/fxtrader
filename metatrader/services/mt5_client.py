@@ -1,5 +1,6 @@
 import MetaTrader5 as mt5
 from threading import Lock
+from models.trade import PoolTrade
 from utils.logger import logger
 
 
@@ -124,3 +125,74 @@ class MT5Client:
                     logger.warning("No active MetaTrader 5 connection to close")
         except Exception as e:
             logger.error(f"Error during shutdown: {str(e)}")
+
+    def execute_market_trade(self, trade: PoolTrade, price: float) -> bool:
+        try:
+            order_type = mt5.ORDER_TYPE_BUY if trade.trade_type == "BUY" else mt5.ORDER_TYPE_SELL
+            filling_mode = self.get_symbol_filling_mode(trade.symbol)
+
+            request = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "symbol": trade.symbol,
+                "volume": trade.volume,
+                "type": order_type,
+                "price": price,
+                "deviation": trade.slippage,
+                "magic": trade.magic_number,
+                "comment": trade.comment,
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": filling_mode,
+            }
+
+            result = mt5.order_send(request)
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info(f"Market trade executed: {result}")
+                return True
+            else:
+                logger.error(f"Market trade failed: {result}")
+                return False
+        except Exception as e:
+            logger.error(f"Exception in execute_market_trade: {e}")
+            return False
+
+    def place_pending_order(self, trade: PoolTrade) -> bool:
+        try:
+            if trade.trade_type == "BUY_LIMIT":
+                order_type = mt5.ORDER_TYPE_BUY_LIMIT
+            elif trade.trade_type == "SELL_LIMIT":
+                order_type = mt5.ORDER_TYPE_SELL_LIMIT
+            elif trade.trade_type == "BUY_STOP":
+                order_type = mt5.ORDER_TYPE_BUY_STOP
+            elif trade.trade_type == "SELL_STOP":
+                order_type = mt5.ORDER_TYPE_SELL_STOP
+            else:
+                logger.error(f"Unsupported pending trade type: {trade.trade_type}")
+                return False
+
+            filling_mode = self.get_symbol_filling_mode(trade.symbol)
+
+            request = {
+                "action": mt5.TRADE_ACTION_PENDING,
+                "symbol": trade.symbol,
+                "volume": trade.volume,
+                "type": order_type,
+                "price": trade.price,
+                "sl": trade.sl,
+                "tp": trade.tp,
+                "deviation": trade.slippage,
+                "magic": trade.magic_number,
+                "comment": trade.comment,
+                "type_time": mt5.ORDER_TIME_GTC,
+                "type_filling": filling_mode,
+            }
+
+            result = mt5.order_send(request)
+            if result.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info(f"Pending order placed: {result}")
+                return True
+            else:
+                logger.error(f"Pending order failed: {result}")
+                return False
+        except Exception as e:
+            logger.error(f"Exception in place_pending_order: {e}")
+            return False
