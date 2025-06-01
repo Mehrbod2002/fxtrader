@@ -193,6 +193,12 @@ definitions:
     type: object
   interfaces.TradeResponse:
     properties:
+      account_type:
+        type: string
+      close_price:
+        type: number
+      close_reason:
+        type: string
       matched_trade_id:
         type: string
       matched_volume:
@@ -403,6 +409,8 @@ definitions:
         type: string
       orderType:
         type: string
+      profit:
+        type: number
       status:
         type: string
       stopLoss:
@@ -1980,34 +1988,6 @@ paths:
       security:
       - Bearer: []
       summary: Modify a pending trade
-      tags:
-      - Trades
-  /trades/balance/stream:
-    get:
-      description: Initiates streaming of a user's balance
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: Balance streaming started
-          schema:
-            additionalProperties: true
-            type: object
-        "401":
-          description: Unauthorized
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Server error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      security:
-      - BearerAuth: []
-      summary: Stream user balance
       tags:
       - Trades
   /trades/stream:

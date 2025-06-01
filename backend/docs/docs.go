@@ -2040,50 +2040,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/trades/balance/stream": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Initiates streaming of a user's balance",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "Trades"
-                ],
-                "summary": "Stream user balance",
-                "responses": {
-                    "200": {
-                        "description": "Balance streaming started",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Server error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/trades/stream": {
             "get": {
                 "security": [
@@ -2978,6 +2934,15 @@ const docTemplate = `{
         "interfaces.TradeResponse": {
             "type": "object",
             "properties": {
+                "account_type": {
+                    "type": "string"
+                },
+                "close_price": {
+                    "type": "number"
+                },
+                "close_reason": {
+                    "type": "string"
+                },
                 "matched_trade_id": {
                     "type": "string"
                 },
@@ -3291,6 +3256,9 @@ const docTemplate = `{
                 },
                 "orderType": {
                     "type": "string"
+                },
+                "profit": {
+                    "type": "number"
                 },
                 "status": {
                     "type": "string"
