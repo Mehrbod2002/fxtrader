@@ -42,7 +42,16 @@ func (r *MongoTradeRepository) SaveTrade(trade *models.TradeHistory) error {
 	filter := bson.M{"_id": trade.ID}
 	update := bson.M{
 		"$set": bson.M{
+			"trade_id":         trade.ID.Hex(),
+			"account_type":     trade.AccountType,
+			"trade_type":       trade.TradeType,
+			"order_type":       trade.OrderType,
+			"symbol":           trade.Symbol,
+			"leverage":         trade.Leverage,
+			"entry_price":      trade.EntryPrice,
 			"status":           trade.Status,
+			"volume":           trade.Volume,
+			"timestamp":        trade.OpenTime.Unix(),
 			"matched_trade_id": trade.MatchedTradeID,
 			"close_time":       trade.CloseTime,
 			"stop_loss":        trade.StopLoss,

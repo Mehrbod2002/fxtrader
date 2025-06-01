@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/mehrbod2002/fxtrader/internal/api"
-	"github.com/mehrbod2002/fxtrader/internal/config" // Import interfaces package
+	"github.com/mehrbod2002/fxtrader/internal/config"
 	"github.com/mehrbod2002/fxtrader/internal/middleware"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
 	"github.com/mehrbod2002/fxtrader/internal/service"

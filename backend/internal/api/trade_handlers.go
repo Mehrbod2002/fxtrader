@@ -116,10 +116,6 @@ func (h *TradeHandler) CloseTrade(c *gin.Context) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden (trade belongs to another user)"})
 		return
 	}
-	// if trade.Status != string(models.TradeStatusOpen) {
-	// 	c.JSON(http.StatusBadRequest, gin.H{"error": "Trade is not open"})
-	// 	return
-	// }
 
 	closeResponse, err := h.tradeService.CloseTrade(tradeID, userID, trade.AccountType)
 	if err != nil {

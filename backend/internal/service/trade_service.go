@@ -128,7 +128,8 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 	}
 
 	requiredMargin := volume * entryPrice / float64(leverage)
-	if user.Balance < requiredMargin+symbolObj.CommissionFee {
+	if (accountType == "DEMO" && user.DemoMT5Balance < requiredMargin+symbolObj.CommissionFee) ||
+		(accountType == "REAL" && user.RealMT5Balance < requiredMargin+symbolObj.CommissionFee) {
 		return nil, interfaces.TradeResponse{}, errors.New("insufficient balance")
 	}
 
@@ -165,7 +166,11 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 		return nil, interfaces.TradeResponse{}, errors.New("expiration time must be in the future")
 	}
 
-	user.Balance -= requiredMargin + symbolObj.CommissionFee
+	if accountType == "DEMO" {
+		user.DemoMT5Balance -= requiredMargin + symbolObj.CommissionFee
+	} else {
+		user.RealMT5Balance -= requiredMargin + symbolObj.CommissionFee
+	}
 	if err := s.userRepo.UpdateUser(user); err != nil {
 		return nil, interfaces.TradeResponse{}, fmt.Errorf("failed to update user balance: %v", err)
 	}
@@ -220,14 +225,22 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 	}()
 
 	if err := s.sendToMT5(tradeRequest); err != nil {
-		user.Balance += requiredMargin
+		if accountType == "DEMO" {
+			user.DemoMT5Balance += requiredMargin
+		} else {
+			user.RealMT5Balance += requiredMargin
+		}
 		s.userRepo.UpdateUser(user)
 		return nil, interfaces.TradeResponse{}, err
 	}
 
 	err = s.tradeRepo.SaveTrade(trade)
 	if err != nil {
-		user.Balance += requiredMargin
+		if accountType == "DEMO" {
+			user.DemoMT5Balance += requiredMargin
+		} else {
+			user.RealMT5Balance += requiredMargin
+		}
 		s.userRepo.UpdateUser(user)
 		return nil, interfaces.TradeResponse{}, err
 	}
@@ -237,7 +250,11 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 	case response := <-responseChan:
 		tradeResponse = response
 		if tradeResponse.TradeID != trade.ID.Hex() {
-			user.Balance += requiredMargin
+			if accountType == "DEMO" {
+				user.DemoMT5Balance += requiredMargin
+			} else {
+				user.RealMT5Balance += requiredMargin
+			}
 			s.userRepo.UpdateUser(user)
 			return nil, interfaces.TradeResponse{}, errors.New("received response for wrong trade ID")
 		}
@@ -253,13 +270,21 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 			*trade.CloseTime = time.Now()
 			trade.CloseReason = tradeResponse.Status
 			err = s.tradeRepo.SaveTrade(trade)
-			user.Balance += requiredMargin
+			if accountType == "DEMO" {
+				user.DemoMT5Balance += requiredMargin
+			} else {
+				user.RealMT5Balance += requiredMargin
+			}
 			s.userRepo.UpdateUser(user)
 			return nil, interfaces.TradeResponse{}, fmt.Errorf("trade failed with status: %s", tradeResponse.Status)
 		}
 		err = s.tradeRepo.SaveTrade(trade)
 		if err != nil {
-			user.Balance += requiredMargin
+			if accountType == "DEMO" {
+				user.DemoMT5Balance += requiredMargin
+			} else {
+				user.RealMT5Balance += requiredMargin
+			}
 			s.userRepo.UpdateUser(user)
 			return nil, interfaces.TradeResponse{}, err
 		}
@@ -269,7 +294,11 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 		*trade.CloseTime = time.Now()
 		trade.CloseReason = "TIMEOUT"
 		err = s.tradeRepo.SaveTrade(trade)
-		user.Balance += requiredMargin
+		if accountType == "DEMO" {
+			user.DemoMT5Balance += requiredMargin
+		} else {
+			user.RealMT5Balance += requiredMargin
+		}
 		s.userRepo.UpdateUser(user)
 		return nil, interfaces.TradeResponse{}, errors.New("timeout waiting for MT5 trade response")
 	}
@@ -341,7 +370,11 @@ func (s *tradeService) HandleTradeResponse(response interfaces.TradeResponse) er
 		user, err := s.userRepo.GetUserByID(trade.UserID)
 		if err == nil && user != nil {
 			margin := trade.Volume * trade.EntryPrice / float64(trade.Leverage)
-			user.Balance += margin
+			if trade.AccountType == "DEMO" {
+				user.DemoMT5Balance += margin
+			} else {
+				user.RealMT5Balance += margin
+			}
 			s.userRepo.UpdateUser(user)
 		}
 	}
@@ -510,9 +543,6 @@ func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfac
 	if trade.AccountType != accountType {
 		return interfaces.TradeResponse{}, fmt.Errorf("trade is not associated with %s account", accountType)
 	}
-	// if trade.Status != string(models.TradeStatusOpen) {
-	// 	return interfaces.TradeResponse{}, errors.New("trade is not open")
-	// }
 
 	closeRequest := map[string]interface{}{
 		"type":         "close_trade_request",
@@ -648,7 +678,11 @@ func (s *tradeService) HandleCloseTradeResponse(response interfaces.TradeRespons
 		}
 
 		margin := trade.Volume * trade.EntryPrice / float64(trade.Leverage)
-		user.Balance += profit + margin
+		if trade.AccountType == "DEMO" {
+			user.DemoMT5Balance += profit + margin
+		} else {
+			user.RealMT5Balance += profit + margin
+		}
 		if err := s.userRepo.UpdateUser(user); err != nil {
 			log.Printf("Failed to update user balance: %v", err)
 		}
