@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/mehrbod2002/fxtrader/interfaces"
+	"github.com/mehrbod2002/fxtrader/internal/models"
 )
 
 const (
@@ -85,14 +86,11 @@ func (s *WebSocketServer) Start(tradeService interfaces.TradeService) error {
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := s.upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Printf("Failed to upgrade to WebSocket: %v", err)
 			return
 		}
-		log.Printf("New connection from %s, awaiting handshake", conn.RemoteAddr().String())
 		go s.handleConnection(conn, s.ctx)
 	})
 
-	log.Printf("WebSocket server listening on %s", s.listenAddr)
 	go func() {
 		if err := http.ListenAndServe(s.listenAddr, nil); err != nil {
 			log.Printf("WebSocket server failed: %v", err)
@@ -102,43 +100,53 @@ func (s *WebSocketServer) Start(tradeService interfaces.TradeService) error {
 }
 
 func (s *WebSocketServer) handleTradeResponse(msg map[string]interface{}, client *Client) error {
-	log.Printf("Raw trade response message: %+v", msg)
 	var response interfaces.TradeResponse
 	data, err := json.Marshal(msg)
+
 	if err != nil {
 		return fmt.Errorf("failed to marshal trade response: %v", err)
 	}
 	if err := json.Unmarshal(data, &response); err != nil {
 		return fmt.Errorf("failed to unmarshal trade response: %v", err)
 	}
-	log.Printf("Forwarding trade response to TradeService: %+v", response)
+
 	return s.tradeService.HandleTradeResponse(response)
 }
 
 func (s *WebSocketServer) handleCloseTradeResponse(msg map[string]interface{}, client *Client) error {
-	var response interfaces.CloseTradeResponse
+	var response interfaces.TradeResponse
 	data, err := json.Marshal(msg)
+
 	if err != nil {
 		return fmt.Errorf("failed to marshal close trade response: %v", err)
 	}
 	if err := json.Unmarshal(data, &response); err != nil {
 		return fmt.Errorf("failed to unmarshal close trade response: %v", err)
 	}
-	log.Printf("Forwarding close trade response to TradeService: %+v", response)
+
 	return s.tradeService.HandleCloseTradeResponse(response)
 }
 
 func (s *WebSocketServer) handleOrderStreamResponse(msg map[string]interface{}, client *Client) error {
-	var response interfaces.OrderStreamResponse
+	var response models.OrderStreamResponse
 	data, err := json.Marshal(msg)
+
 	if err != nil {
 		return fmt.Errorf("failed to marshal order stream response: %v", err)
 	}
 	if err := json.Unmarshal(data, &response); err != nil {
 		return fmt.Errorf("failed to unmarshal order stream response: %v", err)
 	}
-	log.Printf("Forwarding order stream response to TradeService: %+v", response)
-	return s.tradeService.HandleOrderStreamResponse(response)
+
+	if err := s.tradeService.HandleOrderStreamResponse(response); err != nil {
+		errResponse := models.ErrorResponse{Error: fmt.Sprintf("Failed to process order stream: %v", err)}
+		if err := client.conn.WriteJSON(errResponse); err != nil {
+			return fmt.Errorf("Error sending error response to client: %v", err)
+		}
+		return err
+	}
+
+	return nil
 }
 
 func (s *WebSocketServer) handleBalanceResponse(msg map[string]interface{}, client *Client) error {
@@ -460,12 +468,10 @@ func (s *WebSocketServer) SendBalanceRequest(balanceRequest map[string]interface
 		return fmt.Errorf("no active MT5 connections available")
 	}
 	var lastErr error
-	for clientID, client := range s.clients {
+	for _, client := range s.clients {
 		if err := s.sendJSONMessage(client, balanceRequest); err != nil {
-			log.Printf("Failed to send balance request to client %s: %v", clientID, err)
 			lastErr = err
 		} else {
-			log.Printf("Balance request sent to client %s (account_type: %v)", clientID, balanceRequest["account_type"])
 			return nil
 		}
 	}
@@ -475,13 +481,13 @@ func (s *WebSocketServer) SendBalanceRequest(balanceRequest map[string]interface
 func (s *WebSocketServer) handleBalanceStreamResponse(msg map[string]interface{}, client *Client) error {
 	var response interfaces.BalanceResponse
 	data, err := json.Marshal(msg)
+
 	if err != nil {
 		return fmt.Errorf("failed to marshal balance stream response: %v", err)
 	}
 	if err := json.Unmarshal(data, &response); err != nil {
 		return fmt.Errorf("failed to unmarshal balance stream response: %v", err)
 	}
-	log.Printf("Forwarding balance stream response to TradeService: %+v", response)
 	return nil
 }
 
@@ -492,12 +498,10 @@ func (s *WebSocketServer) SendBalanceStreamRequest(streamRequest map[string]inte
 		return fmt.Errorf("no active MT5 connections available")
 	}
 	var lastErr error
-	for clientID, client := range s.clients {
+	for _, client := range s.clients {
 		if err := s.sendJSONMessage(client, streamRequest); err != nil {
-			log.Printf("Failed to send balance stream request to client %s: %v", clientID, err)
 			lastErr = err
 		} else {
-			log.Printf("Balance stream request sent to client %s (account_type: %v)", clientID, streamRequest["account_type"])
 			return nil
 		}
 	}
@@ -508,8 +512,7 @@ func (s *WebSocketServer) Stop() {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
-	for clientID, client := range s.clients {
-		log.Printf("Closing connection for client %s", clientID)
+	for _, client := range s.clients {
 		client.conn.Close()
 	}
 

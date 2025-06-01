@@ -2,7 +2,6 @@ package service
 
 import (
 	"errors"
-	"log"
 	"time"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
@@ -60,7 +59,6 @@ func (s *transactionService) CreateTransaction(userID string, transaction *model
 		"amount":           transaction.Amount,
 	}
 	if err := s.logService.LogAction(primitive.ObjectID{}, "CreateTransaction", "Transaction requested", "", metadata); err != nil {
-		log.Printf("error: %v", err)
 		return nil
 	}
 
@@ -125,7 +123,6 @@ func (s *transactionService) ReviewTransaction(id string, status models.Transact
 		"admin_note":     adminNote,
 	}
 	if err := s.logService.LogAction(primitive.ObjectID{}, "ReviewTransaction", "Transaction reviewed", "", metadata); err != nil {
-		log.Printf("error: %v", err)
 		return nil
 	}
 

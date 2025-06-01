@@ -10,14 +10,14 @@ import (
 
 type TradeService interface {
 	PlaceTrade(userID, symbol, accountType string, tradeType models.TradeType, orderType string, leverage int, volume, entryPrice, stopLoss, takeProfit float64, expiration *time.Time) (*models.TradeHistory, TradeResponse, error)
-	CloseTrade(tradeID, userID, accountType string) (CloseTradeResponse, error)
-	StreamTrades(userID, accountType string) (OrderStreamResponse, error)
+	CloseTrade(tradeID, userID, accountType string) (TradeResponse, error)
+	StreamTrades(userID, accountType string) (chan models.OrderStreamResponse, error)
 	GetTrade(id string) (*models.TradeHistory, error)
 	GetTradesByUserID(userID string) ([]*models.TradeHistory, error)
 	GetAllTrades() ([]*models.TradeHistory, error)
 	HandleTradeResponse(response TradeResponse) error
-	HandleCloseTradeResponse(response CloseTradeResponse) error
-	HandleOrderStreamResponse(response OrderStreamResponse) error
+	HandleCloseTradeResponse(response TradeResponse) error
+	HandleOrderStreamResponse(response models.OrderStreamResponse) error
 	HandleTradeRequest(request map[string]interface{}) error
 	HandleBalanceRequest(request map[string]interface{}) error
 	HandleBalanceResponse(request BalanceResponse) error
@@ -29,27 +29,13 @@ type TradeService interface {
 type TradeResponse struct {
 	TradeID        string  `json:"trade_id"`
 	UserID         string  `json:"user_id"`
-	Status         string  `json:"status"`
 	MatchedTradeID string  `json:"matched_trade_id"`
 	Timestamp      float64 `json:"timestamp"`
 	MatchedVolume  float64 `json:"matched_volume"`
-}
-
-type CloseTradeResponse struct {
-	TradeID     string  `json:"trade_id"`
-	UserID      string  `json:"user_id"`
-	AccountType string  `json:"account_type"`
-	Status      string  `json:"status"`
-	ClosePrice  float64 `json:"close_price"`
-	CloseReason string  `json:"close_reason"`
-	Timestamp   float64 `json:"timestamp"`
-}
-
-type OrderStreamResponse struct {
-	UserID      string                `json:"user_id"`
-	AccountType string                `json:"account_type"`
-	Trades      []models.TradeHistory `json:"trades"`
-	Timestamp   float64               `json:"timestamp"`
+	AccountType    string  `json:"account_type"`
+	Status         string  `json:"status"`
+	ClosePrice     float64 `json:"close_price"`
+	CloseReason    string  `json:"close_reason"`
 }
 
 type BalanceResponse struct {

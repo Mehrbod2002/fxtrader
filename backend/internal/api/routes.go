@@ -31,6 +31,7 @@ func SetupRoutes(
 	tradeService interfaces.TradeService,
 	transactionService service.TransactionService,
 	wsHandler *ws.WebSocketHandler,
+	hub *ws.Hub,
 	leaderRequestService service.LeaderRequestService,
 	baseURL string,
 ) {
@@ -52,7 +53,7 @@ func SetupRoutes(
 	logHandler := NewLogHandler(logService)
 	overviewHandler := NewOverviewHandler(userService, tradeService, transactionService, symbolService, logService)
 	ruleHandler := NewRuleHandler(ruleService)
-	tradeHandler := NewTradeHandler(tradeService, logService)
+	tradeHandler := NewTradeHandler(tradeService, logService, hub)
 	transactionHandler := NewTransactionHandler(transactionService, logService)
 	adminHandler := NewAdminHandler(adminRepo, cfg, userService)
 	alertHandler := NewAlertHandler(alertService, logService)

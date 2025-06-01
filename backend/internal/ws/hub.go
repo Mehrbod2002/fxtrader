@@ -10,23 +10,25 @@ import (
 )
 
 type Hub struct {
-	clients          map[string]*models.Client
-	register         chan *models.Client
-	unregister       chan *models.Client
-	broadcast        chan *models.PriceData
-	balanceBroadcast chan *models.BalanceData
-	tradeBroadcast   chan *models.TradeHistory
-	mu               sync.RWMutex
+	clients              map[string]*models.Client
+	register             chan *models.Client
+	unregister           chan *models.Client
+	broadcast            chan *models.PriceData
+	balanceBroadcast     chan *models.BalanceData
+	tradeBroadcast       chan *models.TradeHistory
+	orderStreamBroadcast chan models.OrderStreamResponse
+	mu                   sync.RWMutex
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		clients:          make(map[string]*models.Client),
-		register:         make(chan *models.Client),
-		unregister:       make(chan *models.Client),
-		broadcast:        make(chan *models.PriceData),
-		tradeBroadcast:   make(chan *models.TradeHistory),
-		balanceBroadcast: make(chan *models.BalanceData),
+		clients:              make(map[string]*models.Client),
+		register:             make(chan *models.Client),
+		unregister:           make(chan *models.Client),
+		broadcast:            make(chan *models.PriceData),
+		tradeBroadcast:       make(chan *models.TradeHistory),
+		balanceBroadcast:     make(chan *models.BalanceData),
+		orderStreamBroadcast: make(chan models.OrderStreamResponse, 256),
 	}
 }
 
@@ -51,7 +53,7 @@ func (h *Hub) Run() {
 					select {
 					case client.Send <- price:
 					default:
-						log.Printf("Client %s buffer full, skipping message", client.ID)
+						log.Printf("Client %s buffer full, skipping price message", client.ID)
 					}
 				}
 			}
@@ -64,7 +66,7 @@ func (h *Hub) Run() {
 					select {
 					case client.SendTrade <- trade:
 					default:
-						log.Printf("Client %s trade buffer full, skipping message", client.ID)
+						log.Printf("Client %s trade buffer full, skipping trade message", client.ID)
 					}
 				}
 			}
@@ -77,7 +79,20 @@ func (h *Hub) Run() {
 					select {
 					case client.SendBalance <- balance:
 					default:
-						log.Printf("Client %s balance buffer full, skipping message", client.ID)
+						log.Printf("Client %s balance buffer full, skipping balance message", client.ID)
+					}
+				}
+			}
+			h.mu.RUnlock()
+		case orderStream := <-h.orderStreamBroadcast:
+			h.mu.RLock()
+			for _, client := range h.clients {
+				subscriptionKey := orderStream.UserID.Hex() + ":" + orderStream.AccountType
+				if client.IsSubscribed(subscriptionKey) {
+					select {
+					case client.SendOrders <- orderStream:
+					default:
+						log.Printf("Client %s order stream buffer full, skipping order stream message", client.ID)
 					}
 				}
 			}
@@ -105,12 +120,16 @@ func (h *Hub) BroadcastTrade(trade *models.TradeHistory) {
 	h.tradeBroadcast <- trade
 }
 
+func (h *Hub) BroadcastBalance(balance *models.BalanceData) {
+	h.balanceBroadcast <- balance
+}
+
+func (h *Hub) BroadcastOrderStream(orderStream models.OrderStreamResponse) {
+	h.orderStreamBroadcast <- orderStream
+}
+
 func (h *Hub) GetClientCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.clients)
-}
-
-func (h *Hub) BroadcastBalance(balance *models.BalanceData) {
-	h.balanceBroadcast <- balance
 }

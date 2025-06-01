@@ -1,5 +1,7 @@
 from pydantic import BaseModel
+from datetime import datetime
 from typing import Optional, List
+
 
 class PoolTrade(BaseModel):
     trade_id: str
@@ -16,6 +18,9 @@ class PoolTrade(BaseModel):
     timestamp: int
     expiration: int
     ticket: int = 0
+    created_at: Optional[datetime] = None
+    profit: float = 0.0
+
 
 class TradeResponse(BaseModel):
     type: str = "trade_response"
@@ -25,6 +30,7 @@ class TradeResponse(BaseModel):
     matched_trade_id: str
     matched_volume: float
     timestamp: float
+
 
 class CloseTradeResponse(BaseModel):
     type: str = "close_trade_response"
@@ -36,12 +42,14 @@ class CloseTradeResponse(BaseModel):
     close_reason: str
     timestamp: float
 
+
 class OrderStreamResponse(BaseModel):
     type: str = "order_stream_response"
     user_id: str
     account_type: str
     trades: List[dict]
     timestamp: float
+
 
 class BalanceResponse(BaseModel):
     type: str = "balance_response"

@@ -47,6 +47,7 @@ func (r *MongoTradeRepository) SaveTrade(trade *models.TradeHistory) error {
 			"close_time":       trade.CloseTime,
 			"stop_loss":        trade.StopLoss,
 			"user_id":          trade.UserID,
+			"profit":           trade.Profit,
 			"take_profit":      trade.TakeProfit,
 			"expiration":       trade.Expiration,
 		},

@@ -18,6 +18,7 @@ type TradeHistory struct {
 	ClosePrice     float64            `bson:"close_price,omitempty"`
 	StopLoss       float64            `bson:"stop_loss"`
 	TakeProfit     float64            `bson:"take_profit"`
+	Profit         float64            `bson:"profit"`
 	OpenTime       time.Time          `bson:"open_time"`
 	CloseTime      *time.Time         `bson:"close_time,omitempty"`
 	CloseReason    string             `bson:"close_reason,omitempty"`

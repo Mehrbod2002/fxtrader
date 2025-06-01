@@ -131,7 +131,6 @@ func (s *alertService) ProcessPriceForAlerts(price *models.PriceData) error {
 
 			message := "Alert triggered for " + alert.SymbolName + " at price " + fmt.Sprintf("%f", *alert.Condition.PriceTarget)
 			if err := s.notifyFunc(alert.UserID, message); err != nil {
-				log.Printf("error: %v", err)
 				continue
 			}
 
@@ -141,7 +140,6 @@ func (s *alertService) ProcessPriceForAlerts(price *models.PriceData) error {
 				"price_target": *alert.Condition.PriceTarget,
 			}
 			if err := s.logService.LogAction(primitive.ObjectID{}, "AlertTriggered", "Price alert triggered", "", metadata); err != nil {
-				log.Printf("error: %v", err)
 				continue
 			}
 		}
@@ -172,7 +170,6 @@ func (s *alertService) ProcessTimeBasedAlerts() error {
 
 			message := "Time-based alert triggered for " + alert.SymbolName
 			if err := s.notifyFunc(alert.UserID, message); err != nil {
-				log.Printf("error: %v", err)
 				continue
 			}
 
@@ -181,7 +178,6 @@ func (s *alertService) ProcessTimeBasedAlerts() error {
 				"symbol_name": alert.SymbolName,
 			}
 			if err := s.logService.LogAction(primitive.ObjectID{}, "AlertTriggered", "Time alert triggered", "", metadata); err != nil {
-				log.Printf("error: %v", err)
 				continue
 			}
 		}

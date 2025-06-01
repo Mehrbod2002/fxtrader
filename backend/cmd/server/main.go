@@ -61,7 +61,6 @@ func main() {
 		log.Fatalf("Failed to ensure admin user: %v", err)
 	}
 
-	wsHandler := ws.NewWebSocketHandler(hub)
 	logService := service.NewLogService(logRepo)
 	userService := service.NewUserService(userRepo)
 	symbolService := service.NewSymbolService(symbolRepo)
@@ -70,7 +69,6 @@ func main() {
 	alertService := service.NewAlertService(alertRepo, symbolRepo, logService)
 	copyTradeService := service.NewCopyTradeService(copyTradeRepo, nil, userService, logService)
 
-	// Initialize WebSocketServer before TradeService
 	socketServer, err := socket.NewWebSocketServer(cfg.ListenPort)
 	if err != nil {
 		log.Fatalf("Failed to initialize WebSocket server: %v", err)
@@ -82,6 +80,7 @@ func main() {
 	}
 	priceService := service.NewPriceService(priceRepo, hub, alertService)
 	leaderRequestService := service.NewLeaderRequestService(leaderRequestRepo, userService, logService)
+	wsHandler := ws.NewWebSocketHandler(hub, tradeService, userRepo)
 
 	copyTradeService.SetTradeService(tradeService)
 
@@ -103,7 +102,7 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 
-	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, leaderRequestService, cfg.BaseURL)
+	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, hub, leaderRequestService, cfg.BaseURL)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
 	log.Printf("Starting server on http://%s", addr)

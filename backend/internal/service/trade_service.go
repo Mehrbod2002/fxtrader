@@ -25,33 +25,38 @@ const (
 )
 
 type tradeService struct {
-	tradeRepo          repository.TradeRepository
-	symbolRepo         repository.SymbolRepository
-	userRepo           repository.UserRepository
-	logService         LogService
-	mt5Conn            *websocket.Conn
-	mt5ConnMu          sync.Mutex
-	responseChan       chan interface{}
-	balanceChan        chan interfaces.BalanceResponse
-	hub                *ws.Hub
-	socketServer       *socket.WebSocketServer
-	copyTradeService   CopyTradeService
-	tradeResponseChans map[string]chan interfaces.OrderStreamResponse
-	tradeResponseMu    sync.Mutex
+	tradeRepo           repository.TradeRepository
+	symbolRepo          repository.SymbolRepository
+	userRepo            repository.UserRepository
+	logService          LogService
+	mt5Conn             *websocket.Conn
+	mt5ConnMu           sync.Mutex
+	responseChan        chan interface{}
+	balanceChan         chan interfaces.BalanceResponse
+	hub                 *ws.Hub
+	socketServer        *socket.WebSocketServer
+	copyTradeService    CopyTradeService
+	tradeResponseChans  map[string]chan interfaces.TradeResponse
+	tradeResponseMu     sync.Mutex
+	streamCtx           map[string]context.CancelFunc
+	ordersResponseChans map[string]chan models.OrderStreamResponse
+	ordersResponseMu    sync.Mutex
 }
 
 func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, userRepo repository.UserRepository, logService LogService, hub *ws.Hub, socketServer *socket.WebSocketServer, copyTradeService CopyTradeService) (interfaces.TradeService, error) {
 	return &tradeService{
-		tradeRepo:          tradeRepo,
-		symbolRepo:         symbolRepo,
-		userRepo:           userRepo,
-		logService:         logService,
-		responseChan:       make(chan interface{}, 100),
-		balanceChan:        make(chan interfaces.BalanceResponse, 100),
-		hub:                hub,
-		socketServer:       socketServer,
-		copyTradeService:   copyTradeService,
-		tradeResponseChans: make(map[string]chan interfaces.OrderStreamResponse),
+		tradeRepo:           tradeRepo,
+		symbolRepo:          symbolRepo,
+		userRepo:            userRepo,
+		logService:          logService,
+		responseChan:        make(chan interface{}, 100),
+		balanceChan:         make(chan interfaces.BalanceResponse, 100),
+		hub:                 hub,
+		socketServer:        socketServer,
+		copyTradeService:    copyTradeService,
+		tradeResponseChans:  make(map[string]chan interfaces.TradeResponse),
+		streamCtx:           make(map[string]context.CancelFunc),
+		ordersResponseChans: make(map[string]chan models.OrderStreamResponse), // Initialize
 	}, nil
 }
 
@@ -59,7 +64,6 @@ func (s *tradeService) RegisterMT5Connection(conn *websocket.Conn) {
 	s.mt5ConnMu.Lock()
 	s.mt5Conn = conn
 	s.mt5ConnMu.Unlock()
-	log.Printf("Registered MT5 connection")
 }
 
 func (s *tradeService) sendToMT5(msg interface{}) error {
@@ -203,7 +207,7 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 		tradeRequest["expiration"] = trade.Expiration.Unix()
 	}
 
-	responseChan := make(chan interfaces.OrderStreamResponse, 1)
+	responseChan := make(chan interfaces.TradeResponse, 1)
 	s.tradeResponseMu.Lock()
 	s.tradeResponseChans[trade.ID.Hex()] = responseChan
 	s.tradeResponseMu.Unlock()
@@ -231,12 +235,7 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 	var tradeResponse interfaces.TradeResponse
 	select {
 	case response := <-responseChan:
-		tr, ok := response.(interfaces.TradeResponse)
-		if !ok {
-			user.Balance += requiredMargin
-			return nil, interfaces.TradeResponse{}, errors.New("invalid trade response type")
-		}
-		tradeResponse = tr
+		tradeResponse = response
 		if tradeResponse.TradeID != trade.ID.Hex() {
 			user.Balance += requiredMargin
 			s.userRepo.UpdateUser(user)
@@ -489,30 +488,30 @@ func (s *tradeService) RequestBalance(userID, accountType string) (float64, erro
 	return user.Balance, nil
 }
 
-func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfaces.CloseTradeResponse, error) {
+func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfaces.TradeResponse, error) {
 	tradeObjID, err := primitive.ObjectIDFromHex(tradeID)
 	if err != nil {
-		return interfaces.CloseTradeResponse{}, errors.New("invalid trade ID")
+		return interfaces.TradeResponse{}, errors.New("invalid trade ID")
 	}
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
-		return interfaces.CloseTradeResponse{}, errors.New("invalid user ID")
+		return interfaces.TradeResponse{}, errors.New("invalid user ID")
 	}
 	trade, err := s.tradeRepo.GetTradeByID(tradeObjID)
 	if err != nil {
-		return interfaces.CloseTradeResponse{}, err
+		return interfaces.TradeResponse{}, err
 	}
 	if trade == nil {
-		return interfaces.CloseTradeResponse{}, errors.New("trade not found")
+		return interfaces.TradeResponse{}, errors.New("trade not found")
 	}
 	if trade.UserID != userObjID {
-		return interfaces.CloseTradeResponse{}, errors.New("trade belongs to another user")
+		return interfaces.TradeResponse{}, errors.New("trade belongs to another user")
 	}
 	if trade.AccountType != accountType {
-		return interfaces.CloseTradeResponse{}, fmt.Errorf("trade is not associated with %s account", accountType)
+		return interfaces.TradeResponse{}, fmt.Errorf("trade is not associated with %s account", accountType)
 	}
 	if trade.Status != string(models.TradeStatusOpen) {
-		return interfaces.CloseTradeResponse{}, errors.New("trade is not open")
+		return interfaces.TradeResponse{}, errors.New("trade is not open")
 	}
 
 	closeRequest := map[string]interface{}{
@@ -523,7 +522,7 @@ func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfac
 		"timestamp":    time.Now().Unix(),
 	}
 
-	responseChan := make(chan interfaces.OrderStreamResponse, 1)
+	responseChan := make(chan interfaces.TradeResponse, 1)
 	s.tradeResponseMu.Lock()
 	s.tradeResponseChans[tradeID] = responseChan
 	s.tradeResponseMu.Unlock()
@@ -536,39 +535,33 @@ func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfac
 	}()
 
 	if err := s.sendToMT5(closeRequest); err != nil {
-		return interfaces.CloseTradeResponse{}, fmt.Errorf("failed to send close trade request: %v", err)
+		return interfaces.TradeResponse{}, fmt.Errorf("failed to send close trade request: %v", err)
 	}
 
 	select {
 	case response := <-responseChan:
-		closeResponse, ok := response.(interfaces.CloseTradeResponse)
-		if !ok {
-			return interfaces.CloseTradeResponse{}, errors.New("invalid close trade response type")
+		if response.TradeID != tradeID {
+			return interfaces.TradeResponse{}, errors.New("received response for wrong trade ID")
 		}
-		if closeResponse.TradeID != tradeID {
-			return interfaces.CloseTradeResponse{}, errors.New("received response for wrong trade ID")
-		}
-		return closeResponse, nil
+		return response, nil
 	case <-time.After(30 * time.Second):
-		return interfaces.CloseTradeResponse{}, errors.New("timeout waiting for MT5 close trade response")
+		return interfaces.TradeResponse{}, errors.New("timeout waiting for MT5 close trade response")
 	}
 }
 
-func (s *tradeService) StreamTrades(userID, accountType string) (chan interfaces.OrderStreamResponse, error) {
-	_, err := primitive.ObjectIDFromHex(userID)
-	if err != nil {
-		return nil, errors.New("invalid user ID")
-	}
+func (s *tradeService) StreamTrades(userID, accountType string) (chan models.OrderStreamResponse, error) {
 	if accountType != "DEMO" && accountType != "REAL" {
 		return nil, errors.New("invalid account type")
 	}
 
 	streamKey := userID + ":" + accountType
-	tradeChan := make(chan interface{}, 100)
+	ctx, cancel := context.WithCancel(context.Background())
+	streamChan := make(chan models.OrderStreamResponse, 256)
 
-	s.tradeResponseMu.Lock()
-	s.tradeResponseChans[streamKey] = tradeChan
-	s.tradeResponseMu.Unlock()
+	s.ordersResponseMu.Lock()
+	s.streamCtx[streamKey] = cancel
+	s.ordersResponseChans[streamKey] = streamChan
+	s.ordersResponseMu.Unlock()
 
 	streamRequest := map[string]interface{}{
 		"type":         "order_stream_request",
@@ -578,25 +571,46 @@ func (s *tradeService) StreamTrades(userID, accountType string) (chan interfaces
 	}
 
 	if err := s.sendToMT5(streamRequest); err != nil {
-		s.tradeResponseMu.Lock()
-		delete(s.tradeResponseChans, streamKey)
-		close(tradeChan)
-		s.tradeResponseMu.Unlock()
+		s.ordersResponseMu.Lock()
+		delete(s.streamCtx, streamKey)
+		delete(s.ordersResponseChans, streamKey)
+		s.ordersResponseMu.Unlock()
+		close(streamChan)
 		return nil, fmt.Errorf("failed to send order stream request: %v", err)
 	}
 
 	go func() {
-		<-time.After(24 * time.Hour)
-		s.tradeResponseMu.Lock()
-		delete(s.tradeResponseChans, streamKey)
-		close(tradeChan)
-		s.tradeResponseMu.Unlock()
+		select {
+		case <-ctx.Done():
+		case <-time.After(24 * time.Hour):
+		}
+		s.ordersResponseMu.Lock()
+		if cancel, exists := s.streamCtx[streamKey]; exists {
+			cancel()
+			delete(s.streamCtx, streamKey)
+			delete(s.ordersResponseChans, streamKey)
+		}
+		s.ordersResponseMu.Unlock()
+		close(streamChan)
 	}()
 
-	return tradeChan, nil
+	return streamChan, nil
 }
 
-func (s *tradeService) HandleCloseTradeResponse(response interfaces.CloseTradeResponse) error {
+func (s *tradeService) StopStream(userID, accountType string) error {
+	streamKey := userID + ":" + accountType
+	s.tradeResponseMu.Lock()
+	defer s.tradeResponseMu.Unlock()
+
+	if cancel, exists := s.streamCtx[streamKey]; exists {
+		cancel()
+		delete(s.streamCtx, streamKey)
+		return nil
+	}
+	return fmt.Errorf("no active stream found for user %s and account type %s", userID, accountType)
+}
+
+func (s *tradeService) HandleCloseTradeResponse(response interfaces.TradeResponse) error {
 	if response.Status != "SUCCESS" {
 		return fmt.Errorf("MT5 failed to close trade: %s", response.Status)
 	}
@@ -651,7 +665,7 @@ func (s *tradeService) HandleCloseTradeResponse(response interfaces.CloseTradeRe
 		"close_price":  response.ClosePrice,
 		"close_reason": response.CloseReason,
 	}
-	if err := s.logService.LogAction(trade.UserID, "CloseTradeResponse", "Trade closed", "", metadata); err != nil {
+	if err := s.logService.LogAction(trade.UserID, "TradeResponse", "Trade closed", "", metadata); err != nil {
 		log.Printf("error: %v", err)
 	}
 
@@ -669,39 +683,48 @@ func (s *tradeService) HandleCloseTradeResponse(response interfaces.CloseTradeRe
 	return nil
 }
 
-func (s *tradeService) HandleOrderStreamResponse(response interfaces.OrderStreamResponse) error {
-	userObjID, err := primitive.ObjectIDFromHex(response.UserID)
-	if err != nil {
-		return errors.New("invalid user ID")
-	}
-
+func (s *tradeService) HandleOrderStreamResponse(response models.OrderStreamResponse) error {
 	for _, trade := range response.Trades {
-		if trade.UserID != userObjID || trade.AccountType != response.AccountType {
-			log.Printf("Trade user or account mismatch: trade %s, response %s", trade.UserID.Hex(), response.UserID)
+		if trade.AccountType != response.AccountType {
 			continue
 		}
+
 		existingTrade, err := s.tradeRepo.GetTradeByID(trade.ID)
 		if err != nil {
-			log.Printf("Failed to check existing trade: %v", err)
 			continue
 		}
+
+		openTime := time.Unix(trade.OpenTime, 0)
+		trade := models.TradeHistory{
+			ID:             trade.ID,
+			UserID:         response.UserID,
+			Symbol:         trade.Symbol,
+			TradeType:      models.TradeType(trade.TradeType),
+			OrderType:      trade.OrderType,
+			Leverage:       0,
+			Volume:         trade.Volume,
+			EntryPrice:     trade.EntryPrice,
+			ClosePrice:     0,
+			StopLoss:       trade.StopLoss,
+			TakeProfit:     trade.TakeProfit,
+			OpenTime:       openTime,
+			CloseTime:      nil,
+			CloseReason:    "",
+			Status:         trade.Status,
+			MatchedTradeID: "",
+			Expiration:     nil,
+			AccountType:    trade.AccountType,
+		}
+
 		if existingTrade == nil {
-			err = s.tradeRepo.SaveTrade(&trade)
-			if err != nil {
-				log.Printf("Failed to save streamed trade: %v", err)
+			if err = s.tradeRepo.SaveTrade(&trade); err != nil {
 				continue
 			}
 		} else {
 			existingTrade.Status = trade.Status
-			existingTrade.CloseTime = trade.CloseTime
-			existingTrade.ClosePrice = trade.ClosePrice
-			existingTrade.CloseReason = trade.CloseReason
 			existingTrade.AccountType = trade.AccountType
-			existingTrade.MatchedTradeID = trade.MatchedTradeID
 			existingTrade.Volume = trade.Volume
-			err = s.tradeRepo.SaveTrade(existingTrade)
-			if err != nil {
-				log.Printf("Failed to update streamed trade: %v", err)
+			if err = s.tradeRepo.SaveTrade(existingTrade); err != nil {
 				continue
 			}
 		}
@@ -713,20 +736,22 @@ func (s *tradeService) HandleOrderStreamResponse(response interfaces.OrderStream
 		"account_type": response.AccountType,
 		"trade_count":  len(response.Trades),
 	}
-	if err := s.logService.LogAction(userObjID, "OrderStreamResponse", "Order stream processed", "", metadata); err != nil {
-		log.Printf("error: %v", err)
+	if err := s.logService.LogAction(response.UserID, "OrderStreamResponse", "Order stream processed", "", metadata); err != nil {
+		log.Printf("Failed to log order stream action: %v", err)
 	}
 
-	streamKey := response.UserID + response.AccountType
-	s.tradeResponseMu.Lock()
-	if ch, exists := s.tradeResponseChans[streamKey]; exists {
+	s.ordersResponseMu.Lock()
+	streamKey := response.UserID.Hex() + ":" + response.AccountType
+	if ch, exists := s.ordersResponseChans[streamKey]; exists {
 		select {
 		case ch <- response:
 		default:
-			log.Printf("Order stream response channel for user %s is full", response.UserID)
+			log.Printf("Stream channel for %s is full or closed", streamKey)
 		}
 	}
-	s.tradeResponseMu.Unlock()
+	s.ordersResponseMu.Unlock()
+
+	s.hub.BroadcastOrderStream(response)
 
 	return nil
 }
@@ -778,7 +803,7 @@ func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, account
 		"volume":       volume,
 	}
 
-	responseChan := make(chan interfaces.OrderStreamResponse, 1)
+	responseChan := make(chan interfaces.TradeResponse, 1)
 	s.tradeResponseMu.Lock()
 	s.tradeResponseChans[tradeID] = responseChan
 	s.tradeResponseMu.Unlock()
@@ -795,11 +820,7 @@ func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, account
 
 	select {
 	case response := <-responseChan:
-		resp, ok := response.(interfaces.TradeResponse)
-		if !ok {
-			return interfaces.TradeResponse{}, errors.New("invalid response type")
-		}
-		if resp.Status == "MODIFIED" {
+		if response.Status == "MODIFIED" {
 			if entryPrice > 0 {
 				trade.EntryPrice = entryPrice
 			}
@@ -811,7 +832,7 @@ func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, account
 			}
 			s.logService.LogAction(userObjID, "ModifyTrade", fmt.Sprintf("Modified trade %s: entry_price=%f, volume=%f", tradeID, entryPrice, volume), "", nil)
 		}
-		return resp, nil
+		return response, nil
 	case <-time.After(10 * time.Second):
 		return interfaces.TradeResponse{}, errors.New("timeout waiting for modify response")
 	}

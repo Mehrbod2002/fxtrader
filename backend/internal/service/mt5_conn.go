@@ -28,7 +28,6 @@ func SetMT5Conn(conn *net.TCPConn) {
 		}
 	}
 	mt5ConnManager.conn = conn
-	log.Printf("Set new MT5 connection from %s", conn.RemoteAddr().String())
 }
 
 func CloseMT5Conn() error {
@@ -40,7 +39,6 @@ func CloseMT5Conn() error {
 		if err != nil {
 			return err
 		}
-		log.Println("MT5 connection closed")
 	}
 	return nil
 }

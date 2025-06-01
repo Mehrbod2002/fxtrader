@@ -12,6 +12,7 @@ from strategies.trade_strategy import MarketTradeStrategy, PendingTradeStrategy
 from config.settings import settings
 from utils.logger import logger
 
+
 class TradeManager:
     def __init__(self, mt5_client: MT5Client, trade_repository: TradeRepository, trade_factory: TradeFactory):
         self.mt5_client = mt5_client
@@ -53,14 +54,14 @@ class TradeManager:
         symbol = json_data.get("symbol", "")
         if not self.mt5_client.get_symbol_info(symbol):
             await self.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
-                                        "FAILED", "", ws, error="Invalid symbol")
+                                           "FAILED", "", ws, error="Invalid symbol")
             return False
 
         volume = json_data.get("volume", 0.0)
         symbol_info = self.mt5_client.get_symbol_info(symbol)
         if volume < symbol_info.volume_min or volume > symbol_info.volume_max:
             await self.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
-                                        "FAILED", "", ws, error="Invalid volume")
+                                           "FAILED", "", ws, error="Invalid volume")
             return False
         trade = self.trade_factory.create_trade(json_data)
         if not self.validate_trade(trade):
@@ -81,21 +82,22 @@ class TradeManager:
                 if strategy and strategy.execute(trade, self.mt5_client) and trade.trade_id != "":
                     await self.send_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "", ws)
                 else:
-                    logger.warning(f"Market order {trade.trade_id} failed execution, remains PENDING")
+                    logger.warning(
+                        f"Market order {trade.trade_id} failed execution, remains PENDING")
         return True
 
     async def execute_matched_trades(self, trade1: PoolTrade, trade2: PoolTrade, ws):
         match_volume = min(trade1.volume, trade2.volume)
-    
+
         if not self.mt5_client.check_margin(trade1.symbol, match_volume, trade1.trade_type):
             await self.send_trade_response(
-                trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws, 
+                trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws,
                 error="Insufficient margin for trade1"
             )
             return
         if not self.mt5_client.check_margin(trade2.symbol, match_volume, trade2.trade_type):
             await self.send_trade_response(
-                trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws, 
+                trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws,
                 error="Insufficient margin for trade2"
             )
             return
@@ -110,17 +112,19 @@ class TradeManager:
             hash_object = hashlib.md5(trade_id.encode())
             hash_int = int(hash_object.hexdigest(), 16)
             return hash_int % 0xFFFFFFFF
-        
+
         try:
-            filling_mode1 = self.mt5_client.get_symbol_filling_mode(trade1.symbol)
-            filling_mode2 = self.mt5_client.get_symbol_filling_mode(trade2.symbol)
+            filling_mode1 = self.mt5_client.get_symbol_filling_mode(
+                trade1.symbol)
+            filling_mode2 = self.mt5_client.get_symbol_filling_mode(
+                trade2.symbol)
         except ValueError as e:
             await self.send_trade_response(
-                trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws, 
+                trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws,
                 error=str(e)
             )
             await self.send_trade_response(
-                trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws, 
+                trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws,
                 error=str(e)
             )
             return
@@ -167,11 +171,11 @@ class TradeManager:
 
         status = "MATCHED" if success else "FAILED"
         await self.send_trade_response(
-            trade1.trade_id, trade1.user_id, status, trade2.trade_id, ws, 
+            trade1.trade_id, trade1.user_id, status, trade2.trade_id, ws,
             error=error, matched_volume=match_volume, remaining_volume=trade1.volume - match_volume
         )
         await self.send_trade_response(
-            trade2.trade_id, trade2.user_id, status, trade1.trade_id, ws, 
+            trade2.trade_id, trade2.user_id, status, trade1.trade_id, ws,
             error=error, matched_volume=match_volume, remaining_volume=trade2.volume - match_volume
         )
 
@@ -182,37 +186,36 @@ class TradeManager:
                 trade2.trade_id = ""
             if trade1.volume <= 0:
                 trade1.trade_id = ""
-            logger.info(f"Matched trades: {trade1.trade_id} and {trade2.trade_id} at price: {match_price}, volume: {match_volume}")
-            
+
     async def send_trade_response(self, trade_id: str, user_id: str, status: str, matched_trade_id: str, ws, error: str = None, matched_volume: float = 0, remaining_volume: float = 0):
-        response = self.trade_factory.create_trade_response(trade_id, user_id, status, matched_volume, matched_trade_id, remaining_volume)
+        response = self.trade_factory.create_trade_response(
+            trade_id, user_id, status, matched_volume, matched_trade_id, remaining_volume)
 
         if error:
             response.status = "FAILED"
         try:
             await ws.send(json.dumps(response.model_dump()))
-            logger.info(f"Sent trade response: {response.model_dump()}")
         except ConnectionClosed:
-            logger.error(f"WebSocket closed while sending trade response: {response.model_dump()}")
-            self.trade_repository.queue_message(json.dumps(response.model_dump()))
+            self.trade_repository.queue_message(
+                json.dumps(response.model_dump()))
         except Exception as e:
-            logger.error(f"Failed to send trade response: {response.model_dump()}. Error: {str(e)}")
-            self.trade_repository.queue_message(json.dumps(response.model_dump()))
+            self.trade_repository.queue_message(
+                json.dumps(response.model_dump()))
 
     async def handle_balance_request(self, json_data: dict, ws):
         user_id = json_data.get("user_id", "")
         account_type = json_data.get("account_type", "")
-        balance = self.trade_repository.get_user_balance(user_id, account_type) 
-        response = self.trade_factory.create_balance_response(user_id, account_type, balance)
+        balance = self.trade_repository.get_user_balance(user_id, account_type)
+        response = self.trade_factory.create_balance_response(
+            user_id, account_type, balance)
         try:
             await ws.send(json.dumps(response.model_dump()))
-            logger.info(f"Sent balance response: {response.model_dump()}")
         except ConnectionClosed:
-            logger.error(f"WebSocket closed while sending balance response: {response.model_dump()}")
-            self.trade_repository.queue_message(json.dumps(response.model_dump()))
+            self.trade_repository.queue_message(
+                json.dumps(response.model_dump()))
         except Exception as e:
-            logger.error(f"Failed to send balance response: {response.model_dump()}. Error: {str(e)}")
-            self.trade_repository.queue_message(json.dumps(response.model_dump()))
+            self.trade_repository.queue_message(
+                json.dumps(response.model_dump()))
 
     async def handle_close_trade_request(self, json_data: dict, ws):
         user_id = json_data.get("user_id", "")
@@ -222,17 +225,24 @@ class TradeManager:
         close_price = 0.0
         close_reason = ""
         positions = self.mt5_client.get_positions()
+        profit = 0.0
         for position in positions:
             if position.comment == "Trade" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
-                close_price = self.mt5_client.get_symbol_tick(position.symbol).bid if position.type == mt5.POSITION_TYPE_BUY else self.mt5_client.get_symbol_tick(position.symbol).ask
-                success = self.mt5_client.close_order(position.ticket, position.symbol, position.volume, position.type)
-                close_reason = "CLOSED" if success else "FAILED"
-                break
+                success = self.mt5_client.close_order(
+                    position.ticket, position.symbol, position.volume, position.type)
+                if success:
+                    deals = self.mt5_client.history_deals_get(
+                        position=position.ticket)
+                    for deal in deals:
+                        if deal.entry == mt5.DEAL_ENTRY_OUT:
+                            profit = deal.profit
+                            break
         else:
             orders = self.mt5_client.get_orders()
             for order in orders:
                 if order.comment == "Pending" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
-                    success = self.mt5_client.close_order(order.ticket, order.symbol, order.volume_current, order.type)
+                    success = self.mt5_client.close_order(
+                        order.ticket, order.symbol, order.volume_current, order.type)
                     close_reason = "CANCELED" if success else "FAILED"
                     for trade in self.trade_repository.pool:
                         if trade.ticket == order.ticket and trade.trade_id == trade_id:
@@ -241,18 +251,17 @@ class TradeManager:
                     break
             else:
                 close_reason = "INVALID_TICKET"
-        response = self.trade_factory.create_close_trade_response(trade_id, user_id, account_type,
-                                                                "SUCCESS" if success else "FAILED",
-                                                                close_price, close_reason)
+        response = self.trade_factory.create_close_trade_response(
+            trade_id, user_id, account_type, "SUCCESS" if success else "FAILED", close_price, close_reason, profit=profit
+        )
         try:
             await ws.send(json.dumps(response.model_dump()))
-            logger.info(f"Sent close trade response: {response.model_dump()}")
         except ConnectionClosed:
-            logger.error(f"WebSocket closed while sending close trade response: {response.model_dump()}")
-            self.trade_repository.queue_message(json.dumps(response.model_dump()))
+            self.trade_repository.queue_message(
+                json.dumps(response.model_dump()))
         except Exception as e:
-            logger.error(f"Failed to send close trade response: {response.model_dump()}. Error: {str(e)}")
-            self.trade_repository.queue_message(json.dumps(response.model_dump()))
+            self.trade_repository.queue_message(
+                json.dumps(response.model_dump()))
 
     async def stream_orders(self, user_id: str, account_type: str, ws):
         while True:
@@ -263,7 +272,7 @@ class TradeManager:
                     trade_id = str(position.magic)
                     if position.comment == "Trade" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
                         open_orders.append({
-                            "id": position.magic,
+                            "id": trade_id,
                             "symbol": position.symbol,
                             "trade_type": "BUY" if position.type == mt5.POSITION_TYPE_BUY else "SELL",
                             "order_type": "MARKET",
@@ -273,8 +282,10 @@ class TradeManager:
                             "take_profit": position.tp,
                             "open_time": position.time,
                             "status": "OPEN",
-                            "account_type": account_type
+                            "account_type": account_type,
+                            "profit": position.profit
                         })
+
                 orders = self.mt5_client.get_orders()
                 for order in orders:
                     trade_id = str(order.magic)
@@ -286,7 +297,7 @@ class TradeManager:
                             mt5.ORDER_TYPE_SELL_STOP: "SELL_STOP"
                         }.get(order.type, "")
                         open_orders.append({
-                            "id": order.magic,
+                            "id": trade_id,
                             "symbol": order.symbol,
                             "trade_type": order_type,
                             "order_type": order_type,
@@ -298,14 +309,35 @@ class TradeManager:
                             "status": "PENDING",
                             "account_type": account_type
                         })
-                response = self.trade_factory.create_order_stream_response(user_id, account_type, open_orders)
+
+                for trade in self.trade_repository.pool:
+                    if trade.trade_id and trade.user_id == user_id and trade.account_type == account_type:
+                        if trade.trade_id != "" and not any(o["id"] == trade.trade_id for o in open_orders):
+                            trade_type = trade.trade_type
+                            order_type = trade.order_type
+                            if order_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
+                                trade_type = order_type
+                            open_orders.append({
+                                "id": trade.trade_id,
+                                "symbol": trade.symbol,
+                                "trade_type": trade_type,
+                                "order_type": trade.order_type,
+                                "volume": trade.volume,
+                                "entry_price": trade.entry_price,
+                                "stop_loss": trade.stop_loss,
+                                "take_profit": trade.take_profit,
+                                "open_time": int(trade.created_at.timestamp()) if trade.created_at else int(time.time()),
+                                "status": "PENDING_IN_POOL",
+                                "account_type": trade.account_type
+                            })
+
+                response = self.trade_factory.create_order_stream_response(
+                    user_id, account_type, open_orders)
                 await ws.send(json.dumps(response.model_dump()))
                 await asyncio.sleep(5)
             except ConnectionClosed:
-                logger.error("WebSocket closed during order streaming")
                 break
             except Exception as e:
-                logger.error(f"Error streaming orders: {str(e)}")
                 break
 
     async def handle_order_stream_request(self, json_data: dict, ws):
@@ -314,7 +346,7 @@ class TradeManager:
         open_orders = []
         positions = self.mt5_client.get_positions()
         for position in positions:
-            trade_id = str(position.magic) 
+            trade_id = str(position.magic)
             if position.comment == "Trade" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
                 open_orders.append({
                     "id": position.magic,
@@ -331,7 +363,7 @@ class TradeManager:
                 })
         orders = self.mt5_client.get_orders()
         for order in orders:
-            trade_id = str(order.magic) 
+            trade_id = str(order.magic)
             if order.comment == "Pending" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
                 order_type = {
                     mt5.ORDER_TYPE_BUY_LIMIT: "BUY_LIMIT",
@@ -352,16 +384,16 @@ class TradeManager:
                     "status": "PENDING",
                     "account_type": account_type
                 })
-        response = self.trade_factory.create_order_stream_response(user_id, account_type, open_orders)
+        response = self.trade_factory.create_order_stream_response(
+            user_id, account_type, open_orders)
         try:
             await ws.send(json.dumps(response.model_dump()))
-            logger.info(f"Sent order stream response: {response.model_dump()}")
         except ConnectionClosed:
-            logger.error(f"WebSocket closed while sending order stream response: {response.model_dump()}")
-            self.trade_repository.queue_message(json.dumps(response.model_dump()))
+            self.trade_repository.queue_message(
+                json.dumps(response.model_dump()))
         except Exception as e:
-            logger.error(f"Failed to send order stream response: {response.model_dump()}. Error: {str(e)}")
-            self.trade_repository.queue_message(json.dumps(response.model_dump()))
+            self.trade_repository.queue_message(
+                json.dumps(response.model_dump()))
 
     async def handle_modify_trade_request(self, json_data: dict, ws):
         trade_id = json_data.get("trade_id", "")
@@ -392,16 +424,22 @@ class TradeManager:
             if trade.trade_id == "" or trade.ticket == 0:
                 continue
             if trade.order_type in ["BUY_STOP", "SELL_STOP"]:
-                market_price = self.mt5_client.get_symbol_tick(trade.symbol).bid
+                market_price = self.mt5_client.get_symbol_tick(
+                    trade.symbol).bid
                 triggered = (trade.order_type == "BUY_STOP" and market_price >= trade.entry_price) or \
-                           (trade.order_type == "SELL_STOP" and market_price <= trade.entry_price)
+                    (trade.order_type ==
+                     "SELL_STOP" and market_price <= trade.entry_price)
                 if triggered:
                     strategy = self.strategies.get("MARKET")
                     if strategy.execute(trade, self.mt5_client):
-                        response = self.trade_factory.create_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "")
-                        self.trade_repository.queue_message(json.dumps(response.model_dump()))
+                        response = self.trade_factory.create_trade_response(
+                            trade.trade_id, trade.user_id, "EXECUTED", "")
+                        self.trade_repository.queue_message(
+                            json.dumps(response.model_dump()))
             if trade.expiration > 0 and trade.expiration <= current_time:
                 trade.trade_id = ""
-                response = self.trade_factory.create_trade_response(trade.trade_id, trade.user_id, "EXPIRED", "")
-                self.trade_repository.queue_message(json.dumps(response.model_dump()))
+                response = self.trade_factory.create_trade_response(
+                    trade.trade_id, trade.user_id, "EXPIRED", "")
+                self.trade_repository.queue_message(
+                    json.dumps(response.model_dump()))
                 self.trade_repository.remove_from_pool(trade)

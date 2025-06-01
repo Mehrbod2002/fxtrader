@@ -7,6 +7,7 @@ from repositories.trade_repository import TradeRepository
 from config.settings import settings
 from utils.logger import logger
 
+
 async def main():
     mt5_client = MT5Client()
     trade_repository = TradeRepository(mt5_client)
@@ -16,7 +17,6 @@ async def main():
 
     try:
         if not await ws_client.initialize():
-            logger.error("Failed to initialize trade WebSocket client")
             mt5_client.shutdown()
             return
 

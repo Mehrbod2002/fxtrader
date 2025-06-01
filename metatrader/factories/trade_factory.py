@@ -3,6 +3,8 @@ from uuid import uuid4
 from config.settings import settings
 from services.mt5_client import MT5Client
 from typing import List
+from datetime import datetime
+
 
 class TradeFactory:
     def __init__(self, mt5_client: MT5Client):
@@ -21,8 +23,10 @@ class TradeFactory:
             entry_price=json_data.get("entry_price", 0.0),
             stop_loss=json_data.get("stop_loss", 0.0),
             take_profit=json_data.get("take_profit", 0.0),
-            timestamp=int(json_data.get("timestamp", self.mt5_client.get_symbol_tick(settings.SYMBOL).time)),
-            expiration=int(json_data.get("expiration", 0))
+            timestamp=int(json_data.get(
+                "timestamp", self.mt5_client.get_symbol_tick(settings.SYMBOL).time)),
+            expiration=int(json_data.get("expiration", 0)),
+            created_at=datetime.now()
         )
 
     def create_trade_response(self, trade_id: str, user_id: str, status: str, matched_volume: float, matched_trade_id: str, remaining_volume: float = 0) -> TradeResponse:
@@ -32,11 +36,12 @@ class TradeFactory:
             status=status,
             matched_volume=matched_volume,
             matched_trade_id=matched_trade_id,
-            timestamp=float(self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
+            timestamp=float(
+                self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
         )
 
     def create_close_trade_response(self, trade_id: str, user_id: str, account_type: str, status: str,
-                                   close_price: float, close_reason: str) -> CloseTradeResponse:
+                                    close_price: float, close_reason: str) -> CloseTradeResponse:
         return CloseTradeResponse(
             trade_id=trade_id,
             user_id=user_id,
@@ -44,7 +49,8 @@ class TradeFactory:
             status=status,
             close_price=close_price,
             close_reason=close_reason,
-            timestamp=float(self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
+            timestamp=float(
+                self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
         )
 
     def create_balance_response(self, user_id: str, account_type: str, balance: float, error: str = None) -> BalanceResponse:
@@ -53,7 +59,8 @@ class TradeFactory:
             account_type=account_type,
             balance=balance,
             error=error,
-            timestamp=float(self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
+            timestamp=float(
+                self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
         )
 
     def create_order_stream_response(self, user_id: str, account_type: str, trades: List[dict]) -> OrderStreamResponse:
@@ -61,5 +68,6 @@ class TradeFactory:
             user_id=user_id,
             account_type=account_type,
             trades=trades,
-            timestamp=float(self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
+            timestamp=float(
+                self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
         )

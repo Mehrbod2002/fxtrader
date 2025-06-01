@@ -10,16 +10,22 @@ import (
 	"github.com/mehrbod2002/fxtrader/interfaces"
 	"github.com/mehrbod2002/fxtrader/internal/models"
 	"github.com/mehrbod2002/fxtrader/internal/service"
+	"github.com/mehrbod2002/fxtrader/internal/ws"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type TradeHandler struct {
 	tradeService interfaces.TradeService
 	logService   service.LogService
+	hub          *ws.Hub
 }
 
-func NewTradeHandler(tradeService interfaces.TradeService, logService service.LogService) *TradeHandler {
-	return &TradeHandler{tradeService: tradeService, logService: logService}
+func NewTradeHandler(tradeService interfaces.TradeService, logService service.LogService, hub *ws.Hub) *TradeHandler {
+	return &TradeHandler{
+		tradeService: tradeService,
+		logService:   logService,
+		hub:          hub,
+	}
 }
 
 // @Summary Place a new trade
@@ -150,24 +156,49 @@ func (h *TradeHandler) StreamTrades(c *gin.Context) {
 	userID := c.GetString("user_id")
 	accountType := c.GetString("account_type")
 
-	streamResponse, err := h.tradeService.StreamTrades(userID, accountType)
+	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user ID"})
+		return
+	}
+	if accountType != "DEMO" && accountType != "REAL" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid account type"})
 		return
 	}
 
-	userObjID, _ := primitive.ObjectIDFromHex(userID)
-	metadata := map[string]interface{}{
-		"user_id": userID,
-	}
-	if err := h.logService.LogAction(userObjID, "StreamTrades", "Trade streaming started", c.ClientIP(), metadata); err != nil {
-		log.Printf("error: %v", err)
+	conn, err := ws.Upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to upgrade to WebSocket"})
+		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"status":       "Streaming started",
-		"mt5_response": streamResponse,
-	})
+	client := h.hub.RegisterClient(conn)
+
+	subscriptionKey := userID + ":" + accountType
+	client.Subscribe(subscriptionKey)
+
+	metadata := map[string]interface{}{
+		"user_id":      userID,
+		"account_type": accountType,
+	}
+	if err := h.logService.LogAction(userObjID, "StreamTrades", "Trade streaming started", c.ClientIP(), metadata); err != nil {
+		log.Printf("Failed to log stream action: %v", err)
+	}
+
+	if _, err := h.tradeService.StreamTrades(userID, accountType); err != nil {
+		client.Conn.WriteJSON(models.ErrorResponse{Error: err.Error()})
+		h.hub.UnregisterClient(client)
+		return
+	}
+
+	if err := client.Conn.WriteJSON(map[string]string{
+		"status":       "trade_stream_started",
+		"user_id":      userID,
+		"account_type": accountType,
+	}); err != nil {
+		h.hub.UnregisterClient(client)
+		return
+	}
 }
 
 // @Summary Get user trades

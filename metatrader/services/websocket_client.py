@@ -8,6 +8,7 @@ from services.trade_manager import TradeManager
 from utils.logger import logger
 from websockets.exceptions import ConnectionClosed
 
+
 class WebSocketClient:
     def __init__(self, trade_manager: TradeManager):
         self.trade_manager = trade_manager
@@ -15,29 +16,31 @@ class WebSocketClient:
         self.last_ping_sent = 0
         self.reconnect_attempts = 0
         self.missed_pongs = 0
-        self.redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0)
+        self.redis_client = redis.Redis(
+            host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0)
 
     async def initialize(self):
         return await self.connect()
 
     async def connect(self):
         full_url = f"ws://{settings.WEBSOCKET_URL}:{settings.WEBSOCKET_PORT}{settings.WEBSOCKET_PATH}"
-        logger.info(f"Attempting to connect to WebSocket server: {full_url}")
         backoff = settings.RECONNECT_BACKOFF_INITIAL
         while self.reconnect_attempts < settings.MAX_RECONNECT_ATTEMPTS:
             try:
                 self.websocket = await websockets.connect(full_url, ping_interval=None, max_size=settings.MAX_MESSAGE_SIZE)
                 if await self.send_handshake():
-                    logger.info(f"Connected to WebSocket server: {full_url}")
                     self.reconnect_attempts = 0
                     self.missed_pongs = 0
                     return True
             except Exception as e:
-                logger.error(f"Failed to connect to WebSocket server: {str(e)}")
+                logger.error(
+                    f"Failed to connect to WebSocket server: {str(e)}")
                 self.reconnect_attempts += 1
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 1.5, settings.RECONNECT_BACKOFF_MAX)
-        logger.error(f"Max reconnection attempts reached ({settings.MAX_RECONNECT_ATTEMPTS})")
+
+        logger.error(
+            f"Max reconnection attempts reached ({settings.MAX_RECONNECT_ATTEMPTS})")
         return False
 
     async def send_handshake(self):
@@ -48,16 +51,15 @@ class WebSocketClient:
         }
         try:
             await self.websocket.send(json.dumps(handshake))
-            logger.info(f"Sent handshake: {json.dumps(handshake)}")
             return True
         except Exception as e:
-            logger.error(f"Failed to send handshake: {str(e)}")
             return False
 
     async def send_ping(self):
         while True:
             try:
-                ping = {"type": "ping", "timestamp": float(self.trade_manager.get_timestamp())}
+                ping = {"type": "ping", "timestamp": float(
+                    self.trade_manager.get_timestamp())}
                 await self.websocket.send(json.dumps(ping))
                 await asyncio.sleep(settings.PING_INTERVAL)
             except Exception as e:
@@ -68,7 +70,7 @@ class WebSocketClient:
         while True:
             try:
                 message = await asyncio.wait_for(self.websocket.recv(), timeout=settings.READ_TIMEOUT)
-                logger.info(f"Received: {message}")
+
                 try:
                     json_data = json.loads(message)
                     msg_type = json_data.get("type", "")
@@ -83,11 +85,13 @@ class WebSocketClient:
                     elif msg_type == "order_stream_request":
                         user_id = json_data.get("user_id", "")
                         account_type = json_data.get("account_type", "")
-                        asyncio.create_task(self.trade_manager.stream_orders(user_id, account_type, self.websocket))
+                        asyncio.create_task(self.trade_manager.stream_orders(
+                            user_id, account_type, self.websocket))
                     elif msg_type == "modify_trade_request":
                         await self.trade_manager.handle_modify_trade_request(json_data, self.websocket)
                     elif msg_type == "ping":
-                        pong = {"type": "pong", "timestamp": float(self.trade_manager.get_timestamp())}
+                        pong = {"type": "pong", "timestamp": float(
+                            self.trade_manager.get_timestamp())}
                         await self.websocket.send(json.dumps(pong))
                         self.missed_pongs = 0
                     elif msg_type == "pong":
@@ -97,21 +101,16 @@ class WebSocketClient:
                 except json.JSONDecodeError:
                     logger.error(f"Invalid JSON: {message}")
                 except ConnectionClosed:
-                    logger.error("WebSocket closed during message processing")
                     await self.reconnect()
                 except asyncio.TimeoutError:
-                    logger.warning("Message processing timeout")
                     self.missed_pongs += 1
                     if self.missed_pongs >= 5:
                         await self.reconnect()
             except asyncio.TimeoutError:
-                logger.warning("Read timeout, checking connection")
                 self.missed_pongs += 1
                 if self.missed_pongs >= 5:
-                    logger.error("Too many missed pongs, reconnecting")
                     await self.reconnect()
             except ConnectionClosed:
-                logger.error("WebSocket connection closed, reconnecting")
                 await self.reconnect()
 
     async def handle_ping(self):
@@ -122,11 +121,10 @@ class WebSocketClient:
                 await self.websocket.send(json.dumps(ping))
                 self.last_ping_sent = current_time
             except ConnectionClosed:
-                logger.error("WebSocket closed while sending ping, reconnecting")
                 await self.reconnect()
             except Exception as e:
-                logger.error(f"Failed to send ping: {str(e)}")
-                self.trade_manager.trade_repository.queue_message(json.dumps(ping))
+                self.trade_manager.trade_repository.queue_message(
+                    json.dumps(ping))
 
     async def reconnect(self):
         if self.websocket:
@@ -144,9 +142,7 @@ class WebSocketClient:
                 message = self.redis_client.lpop("message_queue").decode()
                 try:
                     await self.websocket.send(message)
-                    logger.info(f"Resent queued message: {message}")
                 except Exception as e:
-                    logger.error(f"Failed to resend queued message: {str(e)}")
                     self.redis_client.lpush("message_queue", message)
 
     async def deinitialize(self):
@@ -160,5 +156,5 @@ class WebSocketClient:
                 await self.websocket.send(json.dumps(disconnect))
                 await self.websocket.close()
             except Exception as e:
-                logger.error(f"Failed to send disconnect message: {str(e)}")
+                ...
         self.websocket = None
