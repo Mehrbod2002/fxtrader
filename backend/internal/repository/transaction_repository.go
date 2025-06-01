@@ -56,7 +56,7 @@ func (r *MongoTransactionRepository) GetTransactionsByUserID(userID primitive.Ob
 	defer cancel()
 
 	var transactions []*models.Transaction
-	cursor, err := r.collection.Find(ctx, bson.M{"user_id": userID}, options.Find().SetSort(bson.M{"request_time": -1}))
+	cursor, err := r.collection.Find(ctx, bson.M{"user_id": userID.Hex()}, options.Find().SetSort(bson.M{"request_time": -1}))
 	if err != nil {
 		return nil, err
 	}

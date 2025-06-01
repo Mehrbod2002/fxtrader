@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 
@@ -36,6 +37,7 @@ func NewTransactionHandler(transactionService service.TransactionService, logSer
 func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 	var req TransactionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		fmt.Println(err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}

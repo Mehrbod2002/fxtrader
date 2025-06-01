@@ -88,6 +88,7 @@ func SetupRoutes(
 	{
 		v1.POST("/prices", priceHandler.HandlePrice)
 		v1.POST("/users/signup", userHandler.SignupUser)
+		v1.GET("/users//me/:id", userHandler.GetMe)
 		v1.POST("/users/login", userHandler.Login)
 		v1.GET("/users/:id", middleware.UserAuthMiddleware(userService), userHandler.GetUser)
 		v1.GET("/symbols", symbolHandler.GetAllSymbols)
