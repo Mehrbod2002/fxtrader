@@ -41,7 +41,7 @@ class TradeFactory:
         )
 
     def create_close_trade_response(self, trade_id: str, user_id: str, account_type: str, status: str,
-                                    close_price: float, close_reason: str) -> CloseTradeResponse:
+                                    close_price: float, close_reason: str, profit: float = 0) -> CloseTradeResponse:
         return CloseTradeResponse(
             trade_id=trade_id,
             user_id=user_id,
@@ -49,6 +49,7 @@ class TradeFactory:
             status=status,
             close_price=close_price,
             close_reason=close_reason,
+            profit=profit,
             timestamp=float(
                 self.mt5_client.get_symbol_tick(settings.SYMBOL).time)
         )

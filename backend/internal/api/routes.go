@@ -102,7 +102,7 @@ func SetupRoutes(
 			user.POST("/trades", tradeHandler.PlaceTrade)
 			user.GET("/trades", tradeHandler.GetUserTrades)
 			user.GET("/trades/:id", tradeHandler.GetTrade)
-			user.POST("/trades/:id/close", tradeHandler.CloseTrade)
+			user.PUT("/trades/:id/close", tradeHandler.CloseTrade)
 			user.GET("/trades/stream", tradeHandler.StreamTrades)
 			user.PUT("/trades/:id/modify", tradeHandler.ModifyTrade)
 			user.POST("/transactions", transactionHandler.CreateTransaction)

@@ -286,19 +286,37 @@ class TradeManager:
                     self.remove_trade_from_redis(PoolTrade(trade_id=trade_id, user_id=user_id, account_type=account_type))
         else:
             orders = self.mt5_client.get_orders()
+            success = False 
+            close_reason = "" 
             for order in orders:
                 if order.comment == "Pending" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
                     success = self.mt5_client.close_order(
                         order.ticket, order.symbol, order.volume_current, order.type)
                     close_reason = "CANCELED" if success else "FAILED"
-                    for trade in self.trade_repository.pool:
+                    for trade in self.trade_repository.pool[:]:
                         if trade.ticket == order.ticket and trade.trade_id == trade_id:
                             trade.trade_id = ""
+                            self.trade_repository.pool.remove(trade)
+                            self.trade_repository.pool_size -= 1
                             self.remove_trade_from_redis(trade)
-                            break
-                    break
-            else:
-                close_reason = "INVALID_TICKET"
+
+            if not success:
+                for trade in self.trade_repository.pool[:]:
+                    if (trade.trade_id == trade_id and 
+                        trade.user_id == user_id and 
+                        trade.order_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]):
+                        trade.trade_id = ""
+                        self.trade_repository.pool.remove(trade)
+                        self.trade_repository.pool_size -= 1
+                        self.remove_trade_from_redis(trade)
+                        success = True
+                        close_reason = "CANCELED"
+                        break
+            if not success:
+                close_reason = "INVALID_TICKET" if not close_reason else close_reason
+
+            if not success:
+                close_reason = "INVALID_TICKET" if close_reason == "" else close_reason
         response = self.trade_factory.create_close_trade_response(
             trade_id, user_id, account_type, "SUCCESS" if success else "FAILED", close_price, close_reason, profit=profit
         )
@@ -375,7 +393,7 @@ class TradeManager:
                                 "stop_loss": trade.stop_loss,
                                 "take_profit": trade.take_profit,
                                 "open_time": int(trade.created_at.timestamp()) if trade.created_at else int(time.time()),
-                                "status": "PENDING_IN_POOL",
+                                "status": "PENDING",
                                 "account_type": trade.account_type
                             })
 

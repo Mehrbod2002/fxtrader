@@ -510,9 +510,9 @@ func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfac
 	if trade.AccountType != accountType {
 		return interfaces.TradeResponse{}, fmt.Errorf("trade is not associated with %s account", accountType)
 	}
-	if trade.Status != string(models.TradeStatusOpen) {
-		return interfaces.TradeResponse{}, errors.New("trade is not open")
-	}
+	// if trade.Status != string(models.TradeStatusOpen) {
+	// 	return interfaces.TradeResponse{}, errors.New("trade is not open")
+	// }
 
 	closeRequest := map[string]interface{}{
 		"type":         "close_trade_request",
@@ -778,7 +778,8 @@ func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, account
 	if trade == nil {
 		return interfaces.TradeResponse{}, errors.New("trade not found")
 	}
-	if trade.UserID != userObjID || trade.AccountType != accountType {
+
+	if trade.UserID != userObjID {
 		return interfaces.TradeResponse{}, errors.New("trade does not belong to user or account")
 	}
 	if trade.Status != string(models.TradeStatusPending) {
