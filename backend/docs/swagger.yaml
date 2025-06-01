@@ -2183,6 +2183,37 @@ paths:
       summary: User login
       tags:
       - Users
+  /users/me/{id}:
+    get:
+      description: Retrieves the user's information using Telegram ID
+      parameters:
+      - description: Telegram ID of the user
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.UserAccount'
+        "400":
+          description: Bad request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get current user
+      tags:
+      - Users
   /users/signup:
     post:
       consumes:

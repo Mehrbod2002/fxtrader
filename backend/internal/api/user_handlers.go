@@ -187,3 +187,36 @@ func (h *UserHandler) GetAllUsers(c *gin.Context) {
 
 	c.JSON(http.StatusOK, users)
 }
+
+// @Summary Get current user
+// @Description Retrieves the user's information using Telegram ID
+// @Tags Users
+// @Produce json
+// @Param id path string true "Telegram ID of the user"
+// @Success 200 {object} models.UserAccount
+// @Failure 400 {object} map[string]string "Bad request"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /users/me/{id} [get]
+func (h *UserHandler) GetMe(c *gin.Context) {
+	userID := c.Param("id")
+	if userID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing user ID"})
+		return
+	}
+
+	user, err := h.userService.GetUserByTelegramID(userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve user"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"user_id": userID,
+	}
+
+	if err := h.logService.LogAction(primitive.NilObjectID, "GetMe", "Retrieved own profile", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
+
+	c.JSON(http.StatusOK, user)
+}

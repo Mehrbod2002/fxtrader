@@ -113,3 +113,14 @@ class MT5Client:
             return result
         except Exception as e:
             return None
+        
+    def shutdown(self):
+        try:
+            with self.margin_lock:
+                if mt5.terminal_info() is not None:
+                    mt5.shutdown()
+                    logger.info("MetaTrader 5 connection successfully closed")
+                else:
+                    logger.warning("No active MetaTrader 5 connection to close")
+        except Exception as e:
+            logger.error(f"Error during shutdown: {str(e)}")
