@@ -168,18 +168,19 @@ func (s *WebSocketServer) addClient(clientID string, conn *websocket.Conn, cance
 
 	if oldClient, exists := s.clients[clientID]; exists {
 		log.Printf("Replacing existing connection for client %s", clientID)
+		oldClient.cancelPing()
+		oldClient.writeMu.Lock()
+		oldClient.conn.Close()
+		oldClient.writeMu.Unlock()
+
 		disconnectMsg := map[string]interface{}{
 			"type":      "disconnect",
 			"reason":    "New connection established",
 			"timestamp": time.Now().Unix(),
 		}
-		oldClient.writeMu.Lock()
 		if err := s.sendJSONMessage(oldClient, disconnectMsg); err != nil {
-			log.Printf("error: %v", err)
+			log.Printf("Error sending disconnect message to client %s: %v", clientID, err)
 		}
-		oldClient.writeMu.Unlock()
-		oldClient.conn.Close()
-		oldClient.cancelPing()
 	}
 
 	s.clients[clientID] = &Client{
@@ -234,6 +235,14 @@ func (s *WebSocketServer) startPingMonitor(client *Client, ctx context.Context) 
 				log.Printf("Client %s not found in connection pool, stopping ping monitor", client.clientID)
 				return
 			}
+
+			client.writeMu.Lock()
+			if client.conn == nil {
+				client.writeMu.Unlock()
+				log.Printf("Connection closed for client %s, stopping ping monitor", client.clientID)
+				return
+			}
+			client.writeMu.Unlock()
 
 			pingMsg := map[string]interface{}{
 				"type":      "ping",
@@ -397,10 +406,16 @@ func (s *WebSocketServer) handleHandshake(msg map[string]interface{}, client *Cl
 
 func (s *WebSocketServer) handleDisconnect(msg map[string]interface{}, client *Client) error {
 	reason, _ := msg["reason"].(string)
-	clientID := client.conn.RemoteAddr().String()
+	clientID := client.clientID
 	log.Printf("Client %s initiated disconnect. Reason: %s", clientID, reason)
+
+	client.writeMu.Lock()
+	defer client.writeMu.Unlock()
+	client.cancelPing()
+	if err := client.conn.Close(); err != nil {
+		log.Printf("Error closing connection for client %s: %v", clientID, err)
+	}
 	s.removeClient(clientID)
-	client.conn.Close()
 	return nil
 }
 
