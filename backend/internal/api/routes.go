@@ -131,6 +131,7 @@ func SetupRoutes(
 			admin.PUT("/rules/:id", ruleHandler.UpdateRule)
 			admin.DELETE("/rules/:id", ruleHandler.DeleteRule)
 			admin.GET("/users", userHandler.GetAllUsers)
+			admin.GET("/users/:id", userHandler.GetMe)
 			admin.GET("/trades", tradeHandler.GetAllTrades)
 			admin.GET("/trades/:id", tradeHandler.GetTrade)
 			admin.GET("/transactions", transactionHandler.GetAllTransactions)
