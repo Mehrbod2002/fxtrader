@@ -41,16 +41,24 @@ func (s *leaderRequestService) CreateLeaderRequest(userID, reason string) (*mode
 	if err != nil || user == nil {
 		return nil, errors.New("user not found")
 	}
-	if user.IsCopyTradeLeader {
+
+	if user.IsCopyPendingTradeLeader {
 		return nil, errors.New("user is already a copy trade leader")
 	}
 
 	request := &models.LeaderRequest{
-		UserID: userID,
-		Reason: reason,
-		Status: "PENDING",
+		UserID:     userID,
+		Reason:     reason,
+		Status:     "PENDING",
+		TelegramID: user.TelegramID,
 	}
 	err = s.leaderRequestRepo.SaveLeaderRequest(request)
+	if err != nil {
+		return nil, err
+	}
+
+	user.IsCopyPendingTradeLeader = true
+	err = s.userService.UpdateUser(user)
 	if err != nil {
 		return nil, err
 	}
