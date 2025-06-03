@@ -4,7 +4,7 @@ class Settings:
     MT5_SERVER = "LiteFinance-MT5-Demo"
     MT5_PATH = "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
     SYMBOL = "EURUSD_o"
-    WEBSOCKET_URL = "45.82.64.55"
+    WEBSOCKET_URL = "localhost"
     WEBSOCKET_PORT = 30101
     WEBSOCKET_PATH = "/ws"
     CLIENT_ID = "MT5_Client_1"
