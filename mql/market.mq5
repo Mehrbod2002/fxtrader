@@ -2,7 +2,7 @@
 #property link      "https://www.crypex.org"
 #property version   "1.00"
 
-input string BackendURL = "http://45.82.64.55:7000/api/v1/prices";
+input string BackendURL = "https://api.crypex.org/api/v1/prices";
 
 int OnInit()
 {
