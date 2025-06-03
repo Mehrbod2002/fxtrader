@@ -14,8 +14,8 @@ import (
 
 type LogRepository interface {
 	SaveLog(log *models.LogEntry) error
-	GetAllLogs() ([]*models.LogEntry, error)
-	GetLogsByUserID(userID primitive.ObjectID) ([]*models.LogEntry, error)
+	GetAllLogs(page, limit int) ([]*models.LogEntry, error)
+	GetLogsByUserID(userID primitive.ObjectID, page, limit int) ([]*models.LogEntry, error)
 }
 
 type MongoLogRepository struct {
@@ -37,12 +37,14 @@ func (r *MongoLogRepository) SaveLog(log *models.LogEntry) error {
 	return err
 }
 
-func (r *MongoLogRepository) GetAllLogs() ([]*models.LogEntry, error) {
+func (r *MongoLogRepository) GetAllLogs(page, limit int) ([]*models.LogEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var logs []*models.LogEntry
-	cursor, err := r.collection.Find(ctx, bson.M{}, options.Find().SetSort(bson.M{"timestamp": -1}))
+	skip := (page - 1) * limit
+	findOptions := options.Find().SetSort(bson.M{"timestamp": -1}).SetSkip(int64(skip)).SetLimit(int64(limit))
+	cursor, err := r.collection.Find(ctx, bson.M{}, findOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -53,12 +55,14 @@ func (r *MongoLogRepository) GetAllLogs() ([]*models.LogEntry, error) {
 	return logs, nil
 }
 
-func (r *MongoLogRepository) GetLogsByUserID(userID primitive.ObjectID) ([]*models.LogEntry, error) {
+func (r *MongoLogRepository) GetLogsByUserID(userID primitive.ObjectID, page, limit int) ([]*models.LogEntry, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var logs []*models.LogEntry
-	cursor, err := r.collection.Find(ctx, bson.M{"user_id": userID}, options.Find().SetSort(bson.M{"timestamp": -1}))
+	skip := (page - 1) * limit
+	findOptions := options.Find().SetSort(bson.M{"timestamp": -1}).SetSkip(int64(skip)).SetLimit(int64(limit))
+	cursor, err := r.collection.Find(ctx, bson.M{"user_id": userID}, findOptions)
 	if err != nil {
 		return nil, err
 	}

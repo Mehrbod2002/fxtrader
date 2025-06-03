@@ -143,6 +143,8 @@ func SetupRoutes(
 			admin.POST("/leader-requests/:id/approve", leaderRequestHandler.ApproveLeaderRequest)
 			admin.POST("/leader-requests/:id/deny", leaderRequestHandler.DenyLeaderRequest)
 			admin.GET("/leader-requests", leaderRequestHandler.GetPendingLeaderRequests)
+			admin.GET("/copy-trade-leaders", leaderRequestHandler.GetApprovedLeaders)
+			admin.GET("/copy-trades", copyTradeHandler.GetAllUserSubscriptions)
 		}
 	}
 

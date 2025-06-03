@@ -15,6 +15,7 @@ type CopyTradeService interface {
 	CreateSubscription(followerID, leaderID string, allocatedAmount float64, accountType string) (*models.CopyTradeSubscription, error)
 	GetSubscription(id string) (*models.CopyTradeSubscription, error)
 	GetSubscriptionsByFollowerID(followerID string) ([]*models.CopyTradeSubscription, error)
+	GetAllSubscriptions() ([]*models.CopyTradeSubscription, error)
 	MirrorTrade(leaderTrade *models.TradeHistory, accountType string) error
 	SetTradeService(tradeService interfaces.TradeService)
 }
@@ -40,9 +41,9 @@ func NewCopyTradeService(copyTradeRepo repository.CopyTradeRepository, tradeServ
 }
 
 func (s *copyTradeService) CreateSubscription(followerID, leaderID string, allocatedAmount float64, accountType string) (*models.CopyTradeSubscription, error) {
-	if followerID == leaderID {
-		return nil, errors.New("cannot follow yourself")
-	}
+	// if followerID == leaderID {
+	// 	return nil, errors.New("cannot follow yourself")
+	// }
 	if allocatedAmount <= 0 {
 		return nil, errors.New("allocated amount must be positive")
 	}
@@ -68,10 +69,12 @@ func (s *copyTradeService) CreateSubscription(followerID, leaderID string, alloc
 	}
 
 	subscription := &models.CopyTradeSubscription{
-		FollowerID:      followerID,
-		LeaderID:        leaderID,
-		AllocatedAmount: allocatedAmount,
-		Status:          "ACTIVE",
+		FollowerID:         followerID,
+		LeaderID:           leaderID,
+		FollowerIDTelegram: follower.TelegramID,
+		LeaderIDTelegram:   leader.TelegramID,
+		AllocatedAmount:    allocatedAmount,
+		Status:             "ACTIVE",
 	}
 
 	err = s.copyTradeRepo.SaveSubscription(subscription)
@@ -102,6 +105,10 @@ func (s *copyTradeService) GetSubscription(id string) (*models.CopyTradeSubscrip
 
 func (s *copyTradeService) GetSubscriptionsByFollowerID(followerID string) ([]*models.CopyTradeSubscription, error) {
 	return s.copyTradeRepo.GetSubscriptionsByFollowerID(followerID)
+}
+
+func (s *copyTradeService) GetAllSubscriptions() ([]*models.CopyTradeSubscription, error) {
+	return s.copyTradeRepo.GetAllSubscriptions()
 }
 
 func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory, accountType string) error {

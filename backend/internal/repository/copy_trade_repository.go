@@ -15,6 +15,7 @@ type CopyTradeRepository interface {
 	SaveSubscription(subscription *models.CopyTradeSubscription) error
 	GetSubscriptionByID(id primitive.ObjectID) (*models.CopyTradeSubscription, error)
 	GetSubscriptionsByFollowerID(followerID string) ([]*models.CopyTradeSubscription, error)
+	GetAllSubscriptions() ([]*models.CopyTradeSubscription, error)
 	GetActiveSubscriptionsByLeaderID(leaderID string) ([]*models.CopyTradeSubscription, error)
 	SaveCopyTrade(copyTrade *models.CopyTrade) error
 }
@@ -48,6 +49,22 @@ func (r *MongoCopyTradeRepository) GetSubscriptionByID(id primitive.ObjectID) (*
 		return nil, nil
 	}
 	return &subscription, err
+}
+
+func (r *MongoCopyTradeRepository) GetAllSubscriptions() ([]*models.CopyTradeSubscription, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var subscriptions []*models.CopyTradeSubscription
+	cursor, err := r.collection.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	if err := cursor.All(ctx, &subscriptions); err != nil {
+		return nil, err
+	}
+	return subscriptions, nil
 }
 
 func (r *MongoCopyTradeRepository) GetSubscriptionsByFollowerID(followerID string) ([]*models.CopyTradeSubscription, error) {

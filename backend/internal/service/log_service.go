@@ -9,8 +9,8 @@ import (
 
 type LogService interface {
 	LogAction(userID primitive.ObjectID, action, description, ipAddress string, metadata map[string]interface{}) error
-	GetAllLogs() ([]*models.LogEntry, error)
-	GetLogsByUserID(userID string) ([]*models.LogEntry, error)
+	GetAllLogs(page, limit int) ([]*models.LogEntry, error)
+	GetLogsByUserID(userID string, page, limit int) ([]*models.LogEntry, error)
 }
 
 type logService struct {
@@ -32,14 +32,14 @@ func (s *logService) LogAction(userID primitive.ObjectID, action, description, i
 	return s.logRepo.SaveLog(logEntry)
 }
 
-func (s *logService) GetAllLogs() ([]*models.LogEntry, error) {
-	return s.logRepo.GetAllLogs()
+func (s *logService) GetAllLogs(page, limit int) ([]*models.LogEntry, error) {
+	return s.logRepo.GetAllLogs(page, limit)
 }
 
-func (s *logService) GetLogsByUserID(userID string) ([]*models.LogEntry, error) {
+func (s *logService) GetLogsByUserID(userID string, page, limit int) ([]*models.LogEntry, error) {
 	objID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return nil, err
 	}
-	return s.logRepo.GetLogsByUserID(objID)
+	return s.logRepo.GetLogsByUserID(objID, page, limit)
 }

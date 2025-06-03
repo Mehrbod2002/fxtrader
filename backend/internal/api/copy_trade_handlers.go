@@ -66,6 +66,25 @@ func (h *CopyTradeHandler) CreateSubscription(c *gin.Context) {
 // @Failure 400 {object} map[string]string "Invalid user ID"
 // @Failure 500 {object} map[string]string "Failed to retrieve subscriptions"
 // @Router /copy-trades [get]
+func (h *CopyTradeHandler) GetAllUserSubscriptions(c *gin.Context) {
+	subscriptions, err := h.copyTradeService.GetAllSubscriptions()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, subscriptions)
+}
+
+// @Summary Get user copy trade subscriptions
+// @Description Retrieves all copy trade subscriptions for the authenticated user
+// @Tags CopyTrading
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {array} models.CopyTradeSubscription
+// @Failure 400 {object} map[string]string "Invalid user ID"
+// @Failure 500 {object} map[string]string "Failed to retrieve subscriptions"
+// @Router /copy-trades [get]
 func (h *CopyTradeHandler) GetUserSubscriptions(c *gin.Context) {
 	followerID := c.GetString("user_id")
 	subscriptions, err := h.copyTradeService.GetSubscriptionsByFollowerID(followerID)

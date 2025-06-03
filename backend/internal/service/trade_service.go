@@ -518,7 +518,11 @@ func (s *tradeService) RequestBalance(userID, accountType string) (float64, erro
 	if !slices.Contains(user.AccountTypes, accountType) {
 		return 0, fmt.Errorf("user does not have %s account", accountType)
 	}
-	return user.Balance, nil
+	balance := user.DemoMT5Balance
+	if accountType == "REAL" {
+		balance = user.RealMT5Balance
+	}
+	return balance, nil
 }
 
 func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfaces.TradeResponse, error) {
