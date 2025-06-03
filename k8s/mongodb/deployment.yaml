@@ -46,10 +46,10 @@ spec:
       initContainers:
       - name: fix-permissions
         image: busybox
-        command: ["sh", "-c", "chown -R 999:999 /data/db"]
+        command: ["sh", "-c", "rm -f /data/db/mongod.lock && chown -R 999:999 /data/db"]
         volumeMounts:
-        - name: mongo-data
-          mountPath: /data/db
+          - name: mongo-data
+            mountPath: /data/db
       volumes:
       - name: mongo-data
         persistentVolumeClaim:
