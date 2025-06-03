@@ -33,7 +33,6 @@ func SetupRoutes(
 	wsHandler *ws.WebSocketHandler,
 	hub *ws.Hub,
 	leaderRequestService service.LeaderRequestService,
-	baseURL string,
 ) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "healthy"})

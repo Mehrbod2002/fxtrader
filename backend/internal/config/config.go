@@ -11,7 +11,6 @@ import (
 type Config struct {
 	Address    string
 	Port       int
-	BaseURL    string
 	MongoURI   string
 	AdminUser  string
 	AdminPass  string
@@ -36,11 +35,6 @@ func Load() (*Config, error) {
 	address := os.Getenv("ADDRESS")
 	if address == "" {
 		address = "0.0.0.0"
-	}
-
-	baseURL := os.Getenv("BASE_URL")
-	if baseURL == "" {
-		baseURL = "http://localhost:" + portStr
 	}
 
 	mongoURI := os.Getenv("MONGO_URI")
@@ -89,7 +83,6 @@ func Load() (*Config, error) {
 	return &Config{
 		Address:    address,
 		Port:       port,
-		BaseURL:    baseURL,
 		MongoURI:   mongoURI,
 		AdminUser:  adminUser,
 		AdminPass:  adminPass,

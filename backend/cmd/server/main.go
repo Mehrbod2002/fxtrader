@@ -102,11 +102,10 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 
-	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, hub, leaderRequestService, cfg.BaseURL)
+	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, hub, leaderRequestService)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
 	log.Printf("Starting server on http://%s", addr)
-	log.Printf("WebSocket endpoint available at ws://%s/ws", cfg.BaseURL)
 
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
