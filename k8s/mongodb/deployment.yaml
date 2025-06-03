@@ -41,8 +41,22 @@ spec:
             memory: "1Gi"
             cpu: "500m"
           limits:
-            memory: "2Gi"
-            cpu: "1"
+            memory: "4Gi"
+            cpu: "2"
+        livenessProbe:
+          exec:
+            command: ["mongo", "--eval", "db.adminCommand('ping')"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command: ["mongo", "--eval", "db.adminCommand('ping')"]
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        lifecycle:
+          preStop:
+            exec:
+              command: ["mongod", "--shutdown"]
       initContainers:
       - name: fix-permissions
         image: busybox
