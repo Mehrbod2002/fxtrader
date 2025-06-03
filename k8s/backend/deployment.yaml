@@ -17,7 +17,7 @@ spec:
       containers:
       - name: fxtrader
         image: mehrbodw/backend:0.0.1
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 7000
           name: http
