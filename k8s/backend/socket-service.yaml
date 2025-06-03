@@ -7,11 +7,6 @@ spec:
   selector:
     app: fxtrader
   ports:
-  - name: http
-    protocol: TCP
-    port: 7000
-    targetPort: 7000
-    nodePort: 30100
   - name: websocket
     protocol: TCP
     port: 7003
