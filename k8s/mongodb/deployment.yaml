@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongodb
+  namespace: fxtrader
+  labels:
+    app: mongodb
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongodb
+  template:
+    metadata:
+      labels:
+        app: mongodb
+    spec:
+      tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+      containers:
+      - name: mongodb
+        image: mongo:latest
+        ports:
+        - containerPort: 27017
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: fxtrader-secret
+              key: ADMIN_USER
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: fxtrader-secret
+              key: ADMIN_PASS
+        volumeMounts:
+        - name: mongo-data
+          mountPath: /data/db
+        resources:
+          requests:
+            memory: 1Gi
+            cpu: 500m
+          limits:
+            memory: 2Gi
+            cpu: "1"
+      volumes:
+      - name: mongo-data
+        persistentVolumeClaim:
+          claimName: mongo-pvc

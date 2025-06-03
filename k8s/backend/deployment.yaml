@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fxtrader
+  labels:
+    app: fxtrader
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fxtrader
+  template:
+    metadata:
+      labels:
+        app: fxtrader
+    spec:
+      containers:
+      - name: fxtrader
+        image: backend:0.0.1
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 7000
+          name: http
+        - containerPort: 7003
+          name: websocket
+        envFrom:
+        - secretRef:
+            name: fxtrader-secret
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
