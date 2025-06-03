@@ -38,11 +38,18 @@ spec:
           mountPath: /data/db
         resources:
           requests:
-            memory: 1Gi
-            cpu: 500m
+            memory: "1Gi"
+            cpu: "500m"
           limits:
-            memory: 2Gi
+            memory: "2Gi"
             cpu: "1"
+      initContainers:
+      - name: fix-permissions
+        image: busybox
+        command: ["sh", "-c", "chown -R 999:999 /data/db"]
+        volumeMounts:
+        - name: mongo-data
+          mountPath: /data/db
       volumes:
       - name: mongo-data
         persistentVolumeClaim:
