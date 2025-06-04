@@ -14,6 +14,8 @@ WORKDIR /home/appuser
 COPY --from=builder /app/fxtrader .
 COPY --chown=appuser:appgroup static/ ./static/
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+RUN chmod -R u=rX,g=rX,o= ./static
 USER appuser
 
 EXPOSE 7000 7003

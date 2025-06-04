@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 
@@ -69,7 +70,9 @@ func SetupRoutes(
 
 	r.GET("/chart", func(c *gin.Context) {
 		symbolFile := filepath.Join(staticPath, "symbol.html")
+		log.Printf("Attempting to access file: %s", symbolFile)
 		if _, err := os.Stat(symbolFile); os.IsNotExist(err) {
+			log.Printf("File not found: %s", symbolFile)
 			c.String(404, "symbol.html not found")
 			return
 		}
