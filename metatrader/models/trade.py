@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
+import time
 
 
 class PoolTrade(BaseModel):
@@ -16,7 +17,10 @@ class PoolTrade(BaseModel):
     stop_loss: float
     take_profit: float
     timestamp: int
+    comment: str = ""
+    slippage: int = 0
     expiration: int
+    magic_number: int = time.time() % 1000000
     ticket: int = 0
     created_at: Optional[datetime] = None
     profit: float = 0.0
