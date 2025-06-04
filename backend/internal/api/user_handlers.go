@@ -92,6 +92,71 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 	})
 }
 
+// @Summary Edit user
+// @Description Edit new user account via Telegram
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param user body models.UserAccount true "User account details"
+// @Success 201 {object} map[string]interface{} "User created"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 409 {object} map[string]string "User already exists"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /users/signup [post]
+func (h *UserHandler) EditUser(c *gin.Context) {
+	var req models.UserAccount
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	existingUser, err := h.userService.GetUserByTelegramID(req.TelegramID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing user"})
+		return
+	}
+	if existingUser == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "User with this Telegram ID not exists"})
+		return
+	}
+
+	user := &models.UserAccount{
+		FullName:         req.FullName,
+		PhoneNumber:      req.PhoneNumber,
+		TelegramID:       req.TelegramID,
+		Username:         req.Username,
+		CardNumber:       req.CardNumber,
+		Citizenship:      req.Citizenship,
+		NationalID:       req.NationalID,
+		AccountType:      "user",
+		AccountTypes:     []string{"REAL", "DEMO"},
+		RegistrationDate: time.Now().Format(time.RFC3339),
+	}
+
+	if user.Username == "" {
+		user.Username = "user_" + user.TelegramID
+	}
+
+	if err := h.userService.SignupUser(user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"username": user.Username,
+		"user_id":  user.ID.Hex(),
+	}
+	if err := h.logService.LogAction(user.ID, "UserSignup", "User edited up via Telegram", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"status":  "User edited",
+		"user_id": user.ID.Hex(),
+		"user":    user,
+	})
+}
+
 // @Summary User login
 // @Description Validates a user via Telegram ID
 // @Tags Users
