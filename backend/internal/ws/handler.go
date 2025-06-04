@@ -44,7 +44,6 @@ func NewWebSocketHandler(hub *Hub, tradeService interfaces.TradeService, user_re
 }
 
 func (h *WebSocketHandler) HandleConnection(c *gin.Context) {
-	fmt.Println("test")
 	conn, err := Upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		return
