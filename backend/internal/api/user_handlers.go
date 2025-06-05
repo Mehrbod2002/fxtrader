@@ -137,7 +137,7 @@ func (h *UserHandler) EditUser(c *gin.Context) {
 		user.Username = "user_" + user.TelegramID
 	}
 
-	if err := h.userService.SignupUser(user); err != nil {
+	if err := h.userService.EditUser(user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
