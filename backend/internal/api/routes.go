@@ -68,6 +68,10 @@ func SetupRoutes(
 	staticPath := filepath.Join(wd, "static")
 	r.Static("/static", staticPath)
 
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "healthy"})
+	})
+
 	r.GET("/chart", func(c *gin.Context) {
 		symbolFile := filepath.Join(staticPath, "symbol.html")
 		log.Printf("Attempting to access file: %s", symbolFile)

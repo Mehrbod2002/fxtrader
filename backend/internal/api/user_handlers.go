@@ -106,6 +106,7 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 func (h *UserHandler) EditUser(c *gin.Context) {
 	var user models.UserAccount
 	if err := c.ShouldBindJSON(&user); err != nil {
+		log.Println(err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
