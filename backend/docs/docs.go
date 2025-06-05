@@ -86,7 +86,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Retrieves a list of all system logs (admin only)",
+                "description": "Retrieves a paginated list of all system logs (admin only)",
                 "produces": [
                     "application/json"
                 ],
@@ -94,6 +94,20 @@ const docTemplate = `{
                     "Logs"
                 ],
                 "summary": "Get all logs",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of logs per page (default 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -101,6 +115,15 @@ const docTemplate = `{
                             "type": "array",
                             "items": {
                                 "$ref": "#/definitions/models.LogEntry"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid pagination parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
                             }
                         }
                     },
@@ -132,7 +155,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Retrieves logs associated with a specific user ID (admin only)",
+                "description": "Retrieves a paginated list of logs associated with a specific user ID (admin only)",
                 "produces": [
                     "application/json"
                 ],
@@ -147,6 +170,18 @@ const docTemplate = `{
                         "name": "user_id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of logs per page (default 100)",
+                        "name": "limit",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -160,7 +195,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid user ID",
+                        "description": "Invalid user ID or pagination parameters",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2575,7 +2610,7 @@ const docTemplate = `{
         },
         "/users/signup": {
             "post": {
-                "description": "Creates a new user account via Telegram",
+                "description": "Edit new user account via Telegram",
                 "consumes": [
                     "application/json"
                 ],
@@ -2585,7 +2620,7 @@ const docTemplate = `{
                 "tags": [
                     "Users"
                 ],
-                "summary": "Sign up a new user",
+                "summary": "Edit user",
                 "parameters": [
                     {
                         "description": "User account details",
@@ -2870,7 +2905,6 @@ const docTemplate = `{
                     "type": "string",
                     "enum": [
                         "MARKET",
-                        "LIMIT",
                         "BUY_STOP",
                         "SELL_STOP",
                         "BUY_LIMIT",
@@ -3109,7 +3143,13 @@ const docTemplate = `{
                 "follower_id": {
                     "type": "string"
                 },
+                "follower_id_telegram": {
+                    "type": "string"
+                },
                 "leader_id": {
+                    "type": "string"
+                },
+                "leader_id_telegram": {
                     "type": "string"
                 },
                 "status": {
@@ -3133,6 +3173,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "telegram_id": {
                     "type": "string"
                 },
                 "updated_at": {
@@ -3454,6 +3497,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "is_active": {
+                    "type": "boolean"
+                },
+                "is_copy_pending_trade_leader": {
                     "type": "boolean"
                 },
                 "is_copy_trade_leader": {
