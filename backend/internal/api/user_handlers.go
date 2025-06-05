@@ -104,13 +104,13 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /users/signup [post]
 func (h *UserHandler) EditUser(c *gin.Context) {
-	var req models.UserAccount
-	if err := c.ShouldBindJSON(&req); err != nil {
+	var user models.UserAccount
+	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
 	}
 
-	existingUser, err := h.userService.GetUserByTelegramID(req.TelegramID)
+	existingUser, err := h.userService.GetUserByTelegramID(user.TelegramID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check existing user"})
 		return
@@ -120,25 +120,8 @@ func (h *UserHandler) EditUser(c *gin.Context) {
 		return
 	}
 
-	user := &models.UserAccount{
-		FullName:         req.FullName,
-		PhoneNumber:      req.PhoneNumber,
-		TelegramID:       req.TelegramID,
-		Username:         req.Username,
-		CardNumber:       req.CardNumber,
-		Citizenship:      req.Citizenship,
-		NationalID:       req.NationalID,
-		AccountType:      "user",
-		AccountTypes:     []string{"REAL", "DEMO"},
-		RegistrationDate: time.Now().Format(time.RFC3339),
-	}
-
-	if user.Username == "" {
-		user.Username = "user_" + user.TelegramID
-	}
-
-	if err := h.userService.EditUser(user); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+	if err := h.userService.EditUser(&user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to edit user"})
 		return
 	}
 
