@@ -47,7 +47,7 @@ func (s *userService) SignupUser(user *models.UserAccount) error {
 }
 
 func (s *userService) EditUser(user *models.UserAccount) error {
-	return s.userRepo.UpdateUser(user)
+	return s.userRepo.EditUser(user)
 }
 
 func (s *userService) GetUser(id string) (*models.UserAccount, error) {

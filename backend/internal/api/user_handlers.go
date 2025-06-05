@@ -150,7 +150,7 @@ func (h *UserHandler) EditUser(c *gin.Context) {
 		log.Printf("error: %v", err)
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
+	c.JSON(http.StatusAccepted, gin.H{
 		"status":  "User edited",
 		"user_id": user.ID.Hex(),
 		"user":    user,

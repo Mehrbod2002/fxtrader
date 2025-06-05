@@ -4,6 +4,7 @@ package repository
 // (No changes needed; provided for reference)
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
@@ -20,6 +21,7 @@ type UserRepository interface {
 	GetAllUsers() ([]*models.UserAccount, error)
 	GetUsersByLeaderStatus(isLeader bool) ([]*models.UserAccount, error)
 	UpdateUser(user *models.UserAccount) error
+	EditUser(user *models.UserAccount) error
 }
 
 type MongoUserRepository struct {
@@ -29,6 +31,51 @@ type MongoUserRepository struct {
 func NewUserRepository(client *mongo.Client, dbName, collectionName string) UserRepository {
 	collection := client.Database(dbName).Collection(collectionName)
 	return &MongoUserRepository{collection: collection}
+}
+
+func (r *MongoUserRepository) EditUser(user *models.UserAccount) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	update := bson.M{
+		"$set": bson.M{
+			"username":                     user.Username,
+			"full_name":                    user.FullName,
+			"phone_number":                 user.PhoneNumber,
+			"card_number":                  user.CardNumber,
+			"national_id":                  user.NationalID,
+			"citizenship":                  user.Citizenship,
+			"account_type":                 user.AccountType,
+			"account_types":                user.AccountTypes,
+			"account_name":                 user.AccountName,
+			"residence":                    user.Residence,
+			"balance":                      user.Balance,
+			"demo_mt5_balance":             user.DemoMT5Balance,
+			"real_mt5_balance":             user.RealMT5Balance,
+			"bonus":                        user.Bonus,
+			"leverage":                     user.Leverage,
+			"trade_type":                   user.TradeType,
+			"wallet_address":               user.WalletAddress,
+			"telegram_id":                  user.TelegramID,
+			"birthday":                     user.BirthDay,
+			"is_active":                    user.IsActive,
+			"is_copy_trade_leader":         user.IsCopyTradeLeader,
+			"is_copy_pending_trade_leader": user.IsCopyPendingTradeLeader,
+		},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": user.ID}, update)
+	if err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("no user found with ID: %s", user.ID.Hex())
+	}
+	if result.ModifiedCount == 0 {
+		return fmt.Errorf("no changes applied to user with ID: %s", user.ID.Hex())
+	}
+
+	return nil
 }
 
 func (r *MongoUserRepository) UpdateUser(user *models.UserAccount) error {
