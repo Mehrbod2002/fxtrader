@@ -17,7 +17,7 @@ RUN chmod 755 ./fxtrader
 COPY --chown=appuser:appgroup static/ ./static/
 COPY --chown=appuser:appgroup docs/ ./docs/
 
-RUN chmod -R 755 ./static ./docs
+RUN chmod -R 777 ./static ./docs
 USER appuser
 EXPOSE 7000 7003
 ENV TZ=UTC

@@ -365,7 +365,7 @@ type ModifyTradeRequest struct {
 type TradeRequest struct {
 	SymbolName  string           `json:"symbol_name" binding:"required"`
 	TradeType   models.TradeType `json:"trade_type" binding:"required,oneof=BUY SELL"`
-	OrderType   string           `json:"order_type" binding:"required,oneof=MARKET LIMIT BUY_STOP SELL_STOP BUY_LIMIT SELL_LIMIT"`
+	OrderType   string           `json:"order_type" binding:"required,oneof=MARKET BUY_STOP SELL_STOP BUY_LIMIT SELL_LIMIT"`
 	Leverage    int              `json:"leverage" binding:"required,gt=0"`
 	Volume      float64          `json:"volume" binding:"required,gt=0"`
 	EntryPrice  float64          `json:"entry_price" binding:"omitempty,gt=0"`
