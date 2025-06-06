@@ -18,6 +18,7 @@ type Config struct {
 	MT5Host    string
 	MT5Port    int
 	ListenPort int
+	BotToken   string
 }
 
 func Load() (*Config, error) {
@@ -62,6 +63,8 @@ func Load() (*Config, error) {
 		mt5Host = "127.0.0.1"
 	}
 
+	botToken := os.Getenv("BOT_TOKEN")
+
 	mt5PortStr := os.Getenv("MT5_PORT")
 	if mt5PortStr == "" {
 		mt5PortStr = "5000"
@@ -88,6 +91,7 @@ func Load() (*Config, error) {
 		AdminPass:  adminPass,
 		JWTSecret:  jwtSecret,
 		MT5Host:    mt5Host,
+		BotToken:   botToken,
 		MT5Port:    mt5Port,
 		ListenPort: listenPort,
 	}, nil
