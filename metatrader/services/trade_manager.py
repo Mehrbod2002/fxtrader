@@ -91,18 +91,18 @@ class TradeManager:
         symbol = json_data.get("symbol", "")
         if not self.mt5_client.get_symbol_info(symbol):
             await self.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
-                                           "FAILED", "", ws, error="Invalid symbol")
+                                           "FAILED 7", "", ws, error="Invalid symbol")
             return False
 
         volume = json_data.get("volume", 0.0)
         symbol_info = self.mt5_client.get_symbol_info(symbol)
         if volume < symbol_info.volume_min or volume > symbol_info.volume_max:
             await self.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
-                                           "FAILED", "", ws, error="Invalid volume")
+                                           "FAILED 8", "", ws, error="Invalid volume")
             return False
         trade = self.trade_factory.create_trade(json_data)
         if not self.validate_trade(trade):
-            await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Invalid trade parameters")
+            await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED 9", "", ws, error="Invalid trade parameters")
             return False
 
         match_index = self.trade_repository.find_matching_trade(trade)
@@ -131,13 +131,13 @@ class TradeManager:
 
         if not self.mt5_client.check_margin(trade1.symbol, match_volume, trade1.trade_type):
             await self.send_trade_response(
-                trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws,
+                trade1.trade_id, trade1.user_id, "FAILED 10", trade2.trade_id, ws,
                 error="Insufficient margin for trade1"
             )
             return
         if not self.mt5_client.check_margin(trade2.symbol, match_volume, trade2.trade_type):
             await self.send_trade_response(
-                trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws,
+                trade2.trade_id, trade2.user_id, "FAILED 11", trade1.trade_id, ws,
                 error="Insufficient margin for trade2"
             )
             return
@@ -151,7 +151,7 @@ class TradeManager:
         def generate_magic(trade_id: str) -> int:
             hash_object = hashlib.md5(trade_id.encode())
             hash_int = int(hash_object.hexdigest(), 16)
-            return hash_int % 0xFFFFFFFF
+            return int(hash_int % 0xFFFFFFFF)
 
         try:
             filling_mode1 = self.mt5_client.get_symbol_filling_mode(
@@ -160,11 +160,11 @@ class TradeManager:
                 trade2.symbol)
         except ValueError as e:
             await self.send_trade_response(
-                trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws,
+                trade1.trade_id, trade1.user_id, "FAILED 12", trade2.trade_id, ws,
                 error=str(e)
             )
             await self.send_trade_response(
-                trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws,
+                trade2.trade_id, trade2.user_id, "FAILED 13", trade1.trade_id, ws,
                 error=str(e)
             )
             return
@@ -180,7 +180,7 @@ class TradeManager:
             "comment": "TradeMatch",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_mode1,
-            "magic": generate_magic(trade1.trade_id)
+            "magic": int(generate_magic(trade1.trade_id))
         }
         request2 = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -193,23 +193,24 @@ class TradeManager:
             "comment": "TradeMatch",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_mode2,
-            "magic": generate_magic(trade2.trade_id)
+            "magic": int(generate_magic(trade2.trade_id))
         }
 
-        result1 = self.mt5_client.order_send(request1)
-        if result1 and result1.retcode == mt5.TRADE_RETCODE_DONE:
+        message1, result1 = self.mt5_client.order_send(request1)
+        if result1 and result1.retcode == 10009:
             ticket1 = result1.order
         else:
             success = False
-            error = result1.comment if result1 else "Order send failed"
-        result2 = self.mt5_client.order_send(request2)
-        if result2 and result2.retcode == mt5.TRADE_RETCODE_DONE:
+            error = message1
+        message2, result2 = self.mt5_client.order_send(request2)
+
+        if result2 and result2.retcode == 10009:
             ticket2 = result2.order
         else:
             success = False
-            error = result2.comment if result2 else "Order send failed" if error == "" else error
+            error = message2 if not error else error
 
-        status = "MATCHED" if success else "FAILED"
+        status = "MATCHED" if success else error
         await self.send_trade_response(
             trade1.trade_id, trade1.user_id, status, trade2.trade_id, ws,
             error=error, matched_volume=match_volume, remaining_volume=trade1.volume - match_volume
@@ -238,7 +239,7 @@ class TradeManager:
             trade_id, user_id, status, matched_volume, matched_trade_id, remaining_volume)
 
         if error:
-            response.status = "FAILED"
+            response.status = error
         try:
             await ws.send(json.dumps(response.model_dump()))
         except ConnectionClosed:
@@ -292,7 +293,7 @@ class TradeManager:
                 if order.comment == "Pending" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
                     success = self.mt5_client.close_order(
                         order.ticket, order.symbol, order.volume_current, order.type)
-                    close_reason = "CANCELED" if success else "FAILED"
+                    close_reason = "CANCELED" if success else "FAILED 16"
                     for trade in self.trade_repository.pool[:]:
                         if trade.ticket == order.ticket and trade.trade_id == trade_id:
                             trade.trade_id = ""
@@ -318,7 +319,7 @@ class TradeManager:
             if not success:
                 close_reason = "INVALID_TICKET" if close_reason == "" else close_reason
         response = self.trade_factory.create_close_trade_response(
-            trade_id, user_id, account_type, "SUCCESS" if success else "FAILED", close_price, close_reason, profit=profit
+            trade_id, user_id, account_type, "SUCCESS" if success else "FAILED 17", close_price, close_reason, profit=profit
         )
         try:
             await ws.send(json.dumps(response.model_dump()))
@@ -470,20 +471,20 @@ class TradeManager:
         for trade in self.trade_repository.pool:
             if trade.trade_id == trade_id and trade.user_id == user_id and trade.account_type == account_type:
                 if trade.order_type == "MARKET":
-                    await self.send_trade_response(trade_id, user_id, "FAILED", "", ws, error="Cannot modify MARKET orders")
+                    await self.send_trade_response(trade_id, user_id, "FAILED 18", "", ws, error="Cannot modify MARKET orders")
                     return
                 if new_price > 0:
                     trade.entry_price = new_price
                 if new_volume > 0:
                     symbol_info = self.mt5_client.get_symbol_info(trade.symbol)
                     if new_volume < symbol_info.volume_min or new_volume > symbol_info.volume_max:
-                        await self.send_trade_response(trade_id, user_id, "FAILED", "", ws, error="Invalid volume")
+                        await self.send_trade_response(trade_id, user_id, "FAILED 19", "", ws, error="Invalid volume")
                         return
                     trade.volume = new_volume
                 self.save_trade_to_redis(trade)
                 await self.send_trade_response(trade_id, user_id, "MODIFIED", "", ws)
                 return
-        await self.send_trade_response(trade_id, user_id, "FAILED", "", ws, error="Trade not found")
+        await self.send_trade_response(trade_id, user_id, "FAILED 20", "", ws, error="Trade not found")
 
     def process_tick(self):
         current_time = int(self.get_timestamp())

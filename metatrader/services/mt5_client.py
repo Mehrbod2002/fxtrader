@@ -1,5 +1,6 @@
 import MetaTrader5 as mt5
 from threading import Lock
+from utils.status import get_retcode_message
 from models.trade import PoolTrade
 from utils.logger import logger
 
@@ -99,22 +100,35 @@ class MT5Client:
                 "type_filling": self.get_symbol_filling_mode(symbol),
             }
             result = mt5.order_send(request)
-            if result.retcode == mt5.TRADE_RETCODE_DONE:
+            if result.retcode == 10009:
                 return True
             else:
                 return False
         except Exception as e:
             return False
 
-    def order_send(self, request):
+    def order_send(self, request) -> tuple[str, any]:
+        if not mt5.initialize():
+            return "MT5 initialization failed", False
+
         try:
             result = mt5.order_send(request)
+
             if result is None:
-                logger.error(f"Failed to send order: {request}")
-            return result
+                logger.error(f"Failed to send order: {request}, Result is None")
+                return "Failed to send order", None
+
+            if result.retcode != mt5.TRADE_RETCODE_DONE:
+                message = get_retcode_message(result.retcode)
+                logger.error(f"Failed to send order: {request}, Retcode: {result.retcode} ({message})")
+                return f"{message}", None
+
+            return "Order executed successfully", result
+
         except Exception as e:
-            return None
-        
+            logger.error(f"Exception occurred while sending order: {str(e)}")
+            return f"Order failed: Exception occurred - {str(e)}", None
+    
     def shutdown(self):
         try:
             with self.margin_lock:
@@ -138,14 +152,14 @@ class MT5Client:
                 "type": order_type,
                 "price": price,
                 "deviation": trade.slippage,
-                "magic": trade.magic_number,
+                "magic": int(trade.magic_number),
                 "comment": trade.comment,
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": filling_mode,
             }
 
             result = mt5.order_send(request)
-            if result.retcode == mt5.TRADE_RETCODE_DONE:
+            if result.retcode == 10009:
                 logger.info(f"Market trade executed: {result}")
                 return True
             else:
@@ -180,14 +194,14 @@ class MT5Client:
                 "sl": trade.sl,
                 "tp": trade.tp,
                 "deviation": trade.slippage,
-                "magic": trade.magic_number,
+                "magic": int(trade.magic_number),
                 "comment": trade.comment,
                 "type_time": mt5.ORDER_TIME_GTC,
                 "type_filling": filling_mode,
             }
 
             result = mt5.order_send(request)
-            if result.retcode == mt5.TRADE_RETCODE_DONE:
+            if result.retcode == 10009:
                 logger.info(f"Pending order placed: {result}")
                 return True
             else:
