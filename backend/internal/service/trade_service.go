@@ -28,7 +28,6 @@ type tradeService struct {
 	tradeRepo           repository.TradeRepository
 	symbolRepo          repository.SymbolRepository
 	userRepo            repository.UserRepository
-	telegramService     TelegramService
 	logService          LogService
 	mt5Conn             *websocket.Conn
 	mt5ConnMu           sync.Mutex
@@ -42,9 +41,10 @@ type tradeService struct {
 	streamCtx           map[string]context.CancelFunc
 	ordersResponseChans map[string]chan models.OrderStreamResponse
 	ordersResponseMu    sync.Mutex
+	// telegramService     TelegramService
 }
 
-func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, telegramService TelegramService, userRepo repository.UserRepository, logService LogService, hub *ws.Hub, socketServer *socket.WebSocketServer, copyTradeService CopyTradeService) (interfaces.TradeService, error) {
+func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, userRepo repository.UserRepository, logService LogService, hub *ws.Hub, socketServer *socket.WebSocketServer, copyTradeService CopyTradeService) (interfaces.TradeService, error) {
 	return &tradeService{
 		tradeRepo:           tradeRepo,
 		symbolRepo:          symbolRepo,
@@ -58,7 +58,7 @@ func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository
 		tradeResponseChans:  make(map[string]chan interfaces.TradeResponse),
 		streamCtx:           make(map[string]context.CancelFunc),
 		ordersResponseChans: make(map[string]chan models.OrderStreamResponse),
-		telegramService:     telegramService,
+		// telegramService:     telegramService,
 	}, nil
 }
 
@@ -311,34 +311,34 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 		}
 	}()
 
-	var expirationTime string
-	if expiration != nil {
-		expirationTime = expiration.Format(time.RFC3339)
-	} else {
-		expirationTime = "N/A"
-	}
-	message := fmt.Sprintf(`✅ معامله برای %s با موفقیت ثبت شد:
-		وضعیت: %s
-		نوع حساب: %s
-		نوع معامله: %s
-		خرید/فروش: %s
-		حجم: %.2f
-		قیمت ورود: %.2f
-		Stop Loss: %.2f
-		Take Profit: %.2f
-		Expiration: %s`,
-		symbol,
-		trade.Status,
-		accountType,
-		orderType,
-		string(tradeType),
-		volume,
-		entryPrice,
-		stopLoss,
-		takeProfit,
-		expirationTime)
+	// var expirationTime string
+	// if expiration != nil {
+	// 	expirationTime = expiration.Format(time.RFC3339)
+	// } else {
+	// 	expirationTime = "N/A"
+	// }
+	// message := fmt.Sprintf(`✅ معامله برای %s با موفقیت ثبت شد:
+	// 	وضعیت: %s
+	// 	نوع حساب: %s
+	// 	نوع معامله: %s
+	// 	خرید/فروش: %s
+	// 	حجم: %.2f
+	// 	قیمت ورود: %.2f
+	// 	Stop Loss: %.2f
+	// 	Take Profit: %.2f
+	// 	Expiration: %s`,
+	// 	symbol,
+	// 	trade.Status,
+	// 	accountType,
+	// 	orderType,
+	// 	string(tradeType),
+	// 	volume,
+	// 	entryPrice,
+	// 	stopLoss,
+	// 	takeProfit,
+	// 	expirationTime)
 
-	s.telegramService.SendMessage(user.TelegramID, message)
+	// s.telegramService.SendMessage(user.TelegramID, message)
 	return trade, tradeResponse, nil
 }
 

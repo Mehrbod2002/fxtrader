@@ -68,16 +68,16 @@ func main() {
 	transactionService := service.NewTransactionService(transactionRepo, logService)
 	alertService := service.NewAlertService(alertRepo, symbolRepo, logService)
 	copyTradeService := service.NewCopyTradeService(copyTradeRepo, nil, userService, logService)
-	telegramService, err := service.NewTelegramService(cfg.BotToken, userService, logService)
-	if err != nil {
-		log.Fatalf("Failed to initialize telegram service: %v", err)
-	}
+	// telegramService, err := service.NewTelegramService(cfg.BotToken, userService, logService)
+	// if err != nil {
+	// 	log.Fatalf("Failed to initialize telegram service: %v", err)
+	// }
 	socketServer, err := socket.NewWebSocketServer(cfg.ListenPort)
 	if err != nil {
 		log.Fatalf("Failed to initialize WebSocket server: %v", err)
 	}
 
-	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, telegramService, userRepo, logService, hub, socketServer, copyTradeService)
+	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, userRepo, logService, hub, socketServer, copyTradeService)
 	if err != nil {
 		log.Fatalf("Failed to initialize trade service: %v", err)
 	}
