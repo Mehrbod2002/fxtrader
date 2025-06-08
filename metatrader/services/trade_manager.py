@@ -131,13 +131,13 @@ class TradeManager:
 
         if not self.mt5_client.check_margin(trade1.symbol, match_volume, trade1.trade_type):
             await self.send_trade_response(
-                trade1.trade_id, trade1.user_id, "FAILED 10", trade2.trade_id, ws,
+                trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws,
                 error="Insufficient margin for trade1"
             )
             return
         if not self.mt5_client.check_margin(trade2.symbol, match_volume, trade2.trade_type):
             await self.send_trade_response(
-                trade2.trade_id, trade2.user_id, "FAILED 11", trade1.trade_id, ws,
+                trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws,
                 error="Insufficient margin for trade2"
             )
             return
@@ -154,20 +154,21 @@ class TradeManager:
             return int(hash_int % 0xFFFFFFFF)
 
         try:
-            filling_mode1 = self.mt5_client.get_symbol_filling_mode(
-                trade1.symbol)
-            filling_mode2 = self.mt5_client.get_symbol_filling_mode(
-                trade2.symbol)
+            filling_mode1 = self.mt5_client.get_symbol_filling_mode(trade1.symbol)
+            filling_mode2 = self.mt5_client.get_symbol_filling_mode(trade2.symbol)
         except ValueError as e:
             await self.send_trade_response(
-                trade1.trade_id, trade1.user_id, "FAILED 12", trade2.trade_id, ws,
+                trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws,
                 error=str(e)
             )
             await self.send_trade_response(
-                trade2.trade_id, trade2.user_id, "FAILED 13", trade1.trade_id, ws,
+                trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws,
                 error=str(e)
             )
             return
+
+        magic1 = generate_magic(trade1.trade_id)
+        magic2 = generate_magic(trade2.trade_id)
 
         request1 = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -180,7 +181,7 @@ class TradeManager:
             "comment": "TradeMatch",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_mode1,
-            "magic": int(generate_magic(trade1.trade_id))
+            "magic": magic1
         }
         request2 = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -193,19 +194,22 @@ class TradeManager:
             "comment": "TradeMatch",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_mode2,
-            "magic": int(generate_magic(trade2.trade_id))
+            "magic": magic2
         }
 
         message1, result1 = self.mt5_client.order_send(request1)
         if result1 and result1.retcode == 10009:
             ticket1 = result1.order
+            trade1.ticket = ticket1
+            trade1.magic = magic1
         else:
             success = False
             error = message1
         message2, result2 = self.mt5_client.order_send(request2)
-
         if result2 and result2.retcode == 10009:
             ticket2 = result2.order
+            trade2.ticket = ticket2
+            trade2.magic = magic2
         else:
             success = False
             error = message2 if not error else error
@@ -224,13 +228,13 @@ class TradeManager:
             trade1.volume -= match_volume
             trade2.volume -= match_volume
             if trade2.volume <= 0:
-                trade2.trade_id = ""
-                self.remove_trade_from_redis(trade2)
+                trade2.status = "EXECUTED"
+                self.save_trade_to_redis(trade2)
             else:
                 self.save_trade_to_redis(trade2)
             if trade1.volume <= 0:
-                trade1.trade_id = ""
-                self.remove_trade_from_redis(trade1)
+                trade1.status = "EXECUTED"
+                self.save_trade_to_redis(trade1)
             else:
                 self.save_trade_to_redis(trade1)
 
