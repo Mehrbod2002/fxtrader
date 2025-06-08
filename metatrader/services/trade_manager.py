@@ -330,10 +330,12 @@ class TradeManager:
             self.trade_repository.queue_message(
                 json.dumps(response.model_dump()))
 
-    async def stream_orders(self, user_id: str, account_type: str, ws):
+    async def stream_orders(self, user_id: str, account_type: str, ws, interval: float = 1.0):
         while True:
             try:
                 open_orders = []
+                order_ids = set()
+
                 positions = self.mt5_client.get_positions()
                 for position in positions:
                     trade_id = str(position.magic)
@@ -352,6 +354,7 @@ class TradeManager:
                             "account_type": account_type,
                             "profit": position.profit
                         })
+                        order_ids.add(trade_id)
 
                 orders = self.mt5_client.get_orders()
                 for order in orders:
@@ -376,10 +379,14 @@ class TradeManager:
                             "status": "PENDING",
                             "account_type": account_type
                         })
+                        order_ids.add(trade_id)
 
                 for trade in self.trade_repository.pool:
                     if trade.trade_id and trade.user_id == user_id and trade.account_type == account_type:
-                        if trade.trade_id != "" and not any(o["id"] == trade.trade_id for o in open_orders):
+                        if trade.trade_id not in order_ids:
+                            if not trade.trade_id.strip():
+                                logger.warning(f"Invalid trade_id for user {user_id}")
+                                continue
                             trade_type = trade.trade_type
                             order_type = trade.order_type
                             if order_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
@@ -397,15 +404,18 @@ class TradeManager:
                                 "status": "PENDING",
                                 "account_type": trade.account_type
                             })
+                            order_ids.add(trade.trade_id)
 
-                response = self.trade_factory.create_order_stream_response(
-                    user_id, account_type, open_orders)
+                response = self.trade_factory.create_order_stream_response(user_id, account_type, open_orders)
                 await ws.send(json.dumps(response.model_dump()))
-                await asyncio.sleep(5)
+                await asyncio.sleep(interval)
+
             except ConnectionClosed:
                 break
             except Exception as e:
-                break
+                logger.error(f"Error in stream_orders for user {user_id}: {str(e)}")
+                await asyncio.sleep(1)
+                continue
 
     async def handle_order_stream_request(self, json_data: dict, ws):
         user_id = json_data.get("user_id", "")
