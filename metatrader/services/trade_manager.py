@@ -87,40 +87,60 @@ class TradeManager:
             return False
         return True
 
-    async def handle_trade_request(self, json_data: dict, ws) -> bool:
+    async def handle_trade_request(self, json_data: dict, ws, trade_manager) -> bool:
         symbol = json_data.get("symbol", "")
         if not self.mt5_client.get_symbol_info(symbol):
-            await self.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
-                                           "FAILED 7", "", ws, error="Invalid symbol")
+            await trade_manager.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
+                                        "FAILED", "", ws, error="Invalid symbol")
             return False
 
         volume = json_data.get("volume", 0.0)
         symbol_info = self.mt5_client.get_symbol_info(symbol)
         if volume < symbol_info.volume_min or volume > symbol_info.volume_max:
-            await self.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
-                                           "FAILED 8", "", ws, error="Invalid volume")
+            await trade_manager.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
+                                        "FAILED", "", ws, error="Invalid volume")
             return False
-        trade = self.trade_factory.create_trade(json_data)
-        if not self.validate_trade(trade):
-            await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED 9", "", ws, error="Invalid trade parameters")
+
+        trade = trade_manager.trade_factory.create_trade(json_data)
+        if not trade_manager.validate_trade(trade):
+            await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Invalid trade parameters")
+            return False
+
+        # user_balance = await self.trade_repository.get_user_balance(trade.user_id, trade.account_type, ws) DEMO
+        user_balance = 10000
+        required_margin = (volume * symbol_info.trade_contract_size *
+                        self.mt5_client.get_symbol_tick(symbol).bid) / trade.leverage
+        if user_balance < required_margin:
+            await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Insufficient user balance")
+            return False
+
+        if not self.mt5_client.check_margin(trade.symbol, volume, trade.trade_type):
+            await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Insufficient account margin")
             return False
 
         match_index = self.trade_repository.find_matching_trade(trade)
         if match_index >= 0:
-            await self.execute_matched_trades(trade, self.trade_repository.pool[match_index], ws)
-            if trade.trade_id != "":
+            matched_trade = self.trade_repository.pool[match_index]
+            await trade_manager.execute_matched_trades(trade, matched_trade, ws)
+
+            if trade.trade_id != "" and trade.volume > 0 and trade.status != "EXECUTED":
                 self.trade_repository.add_to_pool(trade)
-                self.save_trade_to_redis(trade)
-                await self.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
+                trade_manager.save_trade_to_redis(trade)
+                await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
+
+            if matched_trade.volume <= 0:
+                self.trade_repository.remove_from_pool(matched_trade)
+                trade_manager.remove_trade_from_redis(matched_trade)
         else:
             self.trade_repository.add_to_pool(trade)
-            self.save_trade_to_redis(trade)
-            await self.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
+            trade_manager.save_trade_to_redis(trade)
+            await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
             if trade.order_type == "MARKET":
-                strategy = self.strategies.get(trade.order_type)
+                strategy = trade_manager.strategies.get(trade.order_type)
                 if strategy and strategy.execute(trade, self.mt5_client) and trade.trade_id != "":
-                    await self.send_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "", ws)
-                    self.remove_trade_from_redis(trade)
+                    await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "", ws)
+                    self.trade_repository.remove_from_pool(trade)
+                    trade_manager.remove_trade_from_redis(trade)
                 else:
                     logger.warning(
                         f"Market order {trade.trade_id} failed execution, remains PENDING")
@@ -129,46 +149,99 @@ class TradeManager:
     async def execute_matched_trades(self, trade1: PoolTrade, trade2: PoolTrade, ws):
         match_volume = min(trade1.volume, trade2.volume)
 
-        if not self.mt5_client.check_margin(trade1.symbol, match_volume, trade1.trade_type):
-            await self.send_trade_response(
-                trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws,
-                error="Insufficient margin for trade1"
-            )
-            return
-        if not self.mt5_client.check_margin(trade2.symbol, match_volume, trade2.trade_type):
-            await self.send_trade_response(
-                trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws,
-                error="Insufficient margin for trade2"
-            )
+        symbol_info = self.mt5_client.get_symbol_info(trade1.symbol)
+        if not symbol_info:
+            await self.send_trade_response(trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws, error="Failed to get symbol info")
+            await self.send_trade_response(trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws, error="Failed to get symbol info")
             return
 
-        match_price = self.mt5_client.get_symbol_tick(trade1.symbol).bid if trade1.order_type == "MARKET" or trade2.order_type == "MARKET" \
-            else (trade1.entry_price + trade2.entry_price) / 2.0
-        success = True
-        ticket1, ticket2 = 0, 0
-        error = ""
+        tick_size = getattr(symbol_info, 'trade_tick_size', 0.1)
+        try:
+            stops_level = symbol_info.stops_level
+        except AttributeError:
+            stops_level = 1000
+        min_sl_distance = stops_level * tick_size
+
+        tick = self.mt5_client.get_symbol_tick(trade1.symbol)
+
+        def round_price(price: float) -> float:
+            return round(price / tick_size) * tick_size
+
+        if not self.mt5_client.check_margin(trade1.symbol, match_volume, trade1.trade_type):
+            await self.send_trade_response(trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws, error="Insufficient margin for trade1")
+            return
+        if not self.mt5_client.check_margin(trade2.symbol, match_volume, trade2.trade_type):
+            await self.send_trade_response(trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws, error="Insufficient margin for trade2")
+            return
+
+        if trade1.order_type == "MARKET" or trade2.order_type == "MARKET":
+            if not tick:
+                await self.send_trade_response(trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws, error="Failed to get market price")
+                await self.send_trade_response(trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws, error="Failed to get market price")
+                return
+            match_price = round_price(tick.bid if trade1.trade_type == "SELL" else tick.ask)
+        else:
+            if trade1.order_type == "BUY_LIMIT" and trade2.order_type == "SELL_LIMIT":
+                match_price = round_price(trade2.entry_price)
+            elif trade1.order_type == "SELL_LIMIT" and trade2.order_type == "BUY_LIMIT":
+                match_price = round_price(trade2.entry_price)
+            else:
+                match_price = round_price(min(trade1.entry_price, trade2.entry_price))
+
+        def validate_sl_tp(trade: PoolTrade, price: float) -> tuple[float, float]:
+            sl = round_price(trade.stop_loss) if trade.stop_loss else 0.0
+            tp = round_price(trade.take_profit) if trade.take_profit else 0.0
+            if stops_level == 0:
+                return sl, tp
+            if sl:
+                sl_distance = abs(price - sl)
+                if sl_distance < min_sl_distance:
+                    sl = price + min_sl_distance if trade.trade_type == "SELL" else price - min_sl_distance
+                    sl = round_price(sl)
+            if tp:
+                tp_distance = abs(price - tp)
+                if tp_distance < min_sl_distance:
+                    tp = price - min_sl_distance if trade.trade_type == "SELL" else price + min_sl_distance
+                    tp = round_price(tp)
+            return sl, tp
+
+        sl1, tp1 = validate_sl_tp(trade1, match_price)
+        sl2, tp2 = validate_sl_tp(trade2, match_price)
+
+        try:
+            filling_mode1 = self.mt5_client.get_symbol_filling_mode(trade1.symbol)
+            filling_mode2 = self.mt5_client.get_symbol_filling_mode(trade2.symbol)
+        except ValueError as e:
+            await self.send_trade_response(trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws, error=str(e))
+            await self.send_trade_response(trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws, error=str(e))
+            return
 
         def generate_magic(trade_id: str) -> int:
             hash_object = hashlib.md5(trade_id.encode())
             hash_int = int(hash_object.hexdigest(), 16)
             return int(hash_int % 0xFFFFFFFF)
 
-        try:
-            filling_mode1 = self.mt5_client.get_symbol_filling_mode(trade1.symbol)
-            filling_mode2 = self.mt5_client.get_symbol_filling_mode(trade2.symbol)
-        except ValueError as e:
-            await self.send_trade_response(
-                trade1.trade_id, trade1.user_id, "FAILED", trade2.trade_id, ws,
-                error=str(e)
-            )
-            await self.send_trade_response(
-                trade2.trade_id, trade2.user_id, "FAILED", trade1.trade_id, ws,
-                error=str(e)
-            )
-            return
-
         magic1 = generate_magic(trade1.trade_id)
         magic2 = generate_magic(trade2.trade_id)
+
+        pending_order_types = ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]
+        for trade in [trade1, trade2]:
+            if trade.order_type in pending_order_types and trade.ticket != 0:
+
+                success = self.mt5_client.close_order(
+                    trade.ticket, trade.symbol, trade.volume,
+                    {
+                        "BUY_LIMIT": mt5.ORDER_TYPE_BUY_LIMIT,
+                        "SELL_LIMIT": mt5.ORDER_TYPE_SELL_LIMIT,
+                        "BUY_STOP": mt5.ORDER_TYPE_BUY_STOP,
+                        "SELL_STOP": mt5.ORDER_TYPE_SELL_STOP
+                    }[trade.order_type]
+                )
+                if success:
+                    trade.ticket = 0
+                else:
+                    await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Failed to close pending order")
+                    return
 
         request1 = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -176,8 +249,8 @@ class TradeManager:
             "volume": match_volume,
             "type": mt5.ORDER_TYPE_BUY if trade1.trade_type == "BUY" else mt5.ORDER_TYPE_SELL,
             "price": match_price,
-            "sl": trade1.stop_loss,
-            "tp": trade1.take_profit,
+            "sl": sl1,
+            "tp": tp1,
             "comment": "TradeMatch",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_mode1,
@@ -189,13 +262,17 @@ class TradeManager:
             "volume": match_volume,
             "type": mt5.ORDER_TYPE_BUY if trade2.trade_type == "BUY" else mt5.ORDER_TYPE_SELL,
             "price": match_price,
-            "sl": trade2.stop_loss,
-            "tp": trade2.take_profit,
+            "sl": sl2,
+            "tp": tp2,
             "comment": "TradeMatch",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_mode2,
             "magic": magic2
         }
+
+        success = True
+        ticket1, ticket2 = 0, 0
+        error = ""
 
         message1, result1 = self.mt5_client.order_send(request1)
         if result1 and result1.retcode == 10009:
@@ -205,6 +282,7 @@ class TradeManager:
         else:
             success = False
             error = message1
+
         message2, result2 = self.mt5_client.order_send(request2)
         if result2 and result2.retcode == 10009:
             ticket2 = result2.order
@@ -214,7 +292,7 @@ class TradeManager:
             success = False
             error = message2 if not error else error
 
-        status = "MATCHED" if success else error
+        status = "MATCHED" if success else "FAILED"
         await self.send_trade_response(
             trade1.trade_id, trade1.user_id, status, trade2.trade_id, ws,
             error=error, matched_volume=match_volume, remaining_volume=trade1.volume - match_volume
@@ -227,17 +305,47 @@ class TradeManager:
         if success:
             trade1.volume -= match_volume
             trade2.volume -= match_volume
+
             if trade2.volume <= 0:
                 trade2.status = "EXECUTED"
-                self.save_trade_to_redis(trade2)
+                self.trade_repository.remove_from_pool(trade2)
+                self.remove_trade_from_redis(trade2)
             else:
                 self.save_trade_to_redis(trade2)
+
             if trade1.volume <= 0:
                 trade1.status = "EXECUTED"
-                self.save_trade_to_redis(trade1)
+                self.trade_repository.remove_from_pool(trade1)
+                self.remove_trade_from_redis(trade1)
             else:
                 self.save_trade_to_redis(trade1)
 
+                remaining_request = {
+                    "action": mt5.TRADE_ACTION_DEAL,
+                    "symbol": trade1.symbol,
+                    "volume": trade1.volume,
+                    "type": mt5.ORDER_TYPE_BUY if trade1.trade_type == "BUY" else mt5.ORDER_TYPE_SELL,
+                    "price": match_price,
+                    "sl": sl1,
+                    "tp": tp1,
+                    "comment": "TradeMatch_Remaining",
+                    "type_time": mt5.ORDER_TIME_GTC,
+                    "type_filling": filling_mode1,
+                    "magic": generate_magic(trade1.trade_id + "_remaining")
+                }
+                message_rem, result_rem = self.mt5_client.order_send(remaining_request)
+                if result_rem and result_rem.retcode == 10009:
+                    trade1.ticket = result_rem.order
+                    trade1.magic = remaining_request["magic"]
+                    trade1.status = "EXECUTED"
+                    self.trade_repository.remove_from_pool(trade1)
+                    self.remove_trade_from_redis(trade1)
+                else:
+                    await self.send_trade_response(
+                        trade1.trade_id, trade1.user_id, "FAILED", None, ws,
+                        error=message_rem, matched_volume=0, remaining_volume=trade1.volume
+                    )        
+ 
     async def send_trade_response(self, trade_id: str, user_id: str, status: str, matched_trade_id: str, ws, error: str = None, matched_volume: float = 0, remaining_volume: float = 0):
         response = self.trade_factory.create_trade_response(
             trade_id, user_id, status, matched_volume, matched_trade_id, remaining_volume)
@@ -256,7 +364,8 @@ class TradeManager:
     async def handle_balance_request(self, json_data: dict, ws):
         user_id = json_data.get("user_id", "")
         account_type = json_data.get("account_type", "")
-        balance = self.trade_repository.get_user_balance(user_id, account_type)
+        # balance = self.trade_repository.get_user_balance(user_id, account_type) DEMO
+        balance = 1000
         response = self.trade_factory.create_balance_response(
             user_id, account_type, balance)
         try:
@@ -343,7 +452,9 @@ class TradeManager:
                 positions = self.mt5_client.get_positions()
                 for position in positions:
                     trade_id = str(position.magic)
-                    if position.comment == "Trade" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
+                    if trade_id in order_ids:
+                        continue
+                    if position.comment == "TradeMatch" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
                         open_orders.append({
                             "id": trade_id,
                             "symbol": position.symbol,
@@ -360,9 +471,16 @@ class TradeManager:
                         })
                         order_ids.add(trade_id)
 
-                orders = self.mt5_client.get_orders()
+                try:
+                    orders = self.mt5_client.get_orders()
+                    logger.debug(f"User {user_id}: Retrieved {len(orders)} MT5 orders")
+                except mt5.LastError as mt5_err:
+                    logger.error(f"MT5 get_orders error for user {user_id}: {str(mt5_err)}")
+                    orders = []
                 for order in orders:
                     trade_id = str(order.magic)
+                    if trade_id in order_ids:
+                        continue
                     if order.comment == "Pending" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
                         order_type = {
                             mt5.ORDER_TYPE_BUY_LIMIT: "BUY_LIMIT",
@@ -370,57 +488,66 @@ class TradeManager:
                             mt5.ORDER_TYPE_BUY_STOP: "BUY_STOP",
                             mt5.ORDER_TYPE_SELL_STOP: "SELL_STOP"
                         }.get(order.type, "")
-                        open_orders.append({
-                            "id": trade_id,
-                            "symbol": order.symbol,
-                            "trade_type": order_type,
-                            "order_type": order_type,
-                            "volume": order.volume_current,
-                            "entry_price": order.price_open,
-                            "stop_loss": order.sl,
-                            "take_profit": order.tp,
-                            "open_time": order.time_setup,
-                            "status": "PENDING",
-                            "account_type": account_type
-                        })
-                        order_ids.add(trade_id)
+                        if order_type:
+                            open_orders.append({
+                                "id": trade_id,
+                                "symbol": order.symbol,
+                                "trade_type": order_type,
+                                "order_type": order_type,
+                                "volume": order.volume_current,
+                                "entry_price": order.price_open,
+                                "stop_loss": order.sl,
+                                "take_profit": order.tp,
+                                "open_time": order.time_setup,
+                                "status": "PENDING",
+                                "account_type": account_type,
+                                "profit": 0.0
+                            })
+                            order_ids.add(trade_id)
 
                 for trade in self.trade_repository.pool:
-                    if trade.trade_id and trade.user_id == user_id and trade.account_type == account_type:
-                        if trade.trade_id not in order_ids:
-                            if not trade.trade_id.strip():
-                                logger.warning(f"Invalid trade_id for user {user_id}")
-                                continue
-                            trade_type = trade.trade_type
-                            order_type = trade.order_type
-                            if order_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
-                                trade_type = order_type
-                            open_orders.append({
-                                "id": trade.trade_id,
-                                "symbol": trade.symbol,
-                                "trade_type": trade_type,
-                                "order_type": trade.order_type,
-                                "volume": trade.volume,
-                                "entry_price": trade.entry_price,
-                                "stop_loss": trade.stop_loss,
-                                "take_profit": trade.take_profit,
-                                "open_time": int(trade.created_at.timestamp()) if trade.created_at else int(time.time()),
-                                "status": "PENDING",
-                                "account_type": trade.account_type
-                            })
-                            order_ids.add(trade.trade_id)
+                    if not trade.trade_id or not trade.trade_id.strip():
+                        logger.warning(f"Invalid trade_id for user {user_id}")
+                        continue
+                    if (
+                        trade.user_id == user_id
+                        and trade.account_type == account_type
+                        and trade.trade_id not in order_ids
+                        and trade.status == "PENDING"
+                    ):
+                        trade_type = trade.order_type if trade.order_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"] else trade.trade_type
+                        open_orders.append({
+                            "id": trade.trade_id,
+                            "symbol": trade.symbol,
+                            "trade_type": trade_type,
+                            "order_type": trade.order_type,
+                            "volume": trade.volume,
+                            "entry_price": trade.entry_price,
+                            "stop_loss": trade.stop_loss,
+                            "take_profit": trade.take_profit,
+                            "open_time": int(trade.created_at.timestamp()) if trade.created_at else int(time.time()),
+                            "status": "PENDING",
+                            "account_type": trade.account_type,
+                            "profit": 0.0
+                        })
+                        order_ids.add(trade.trade_id)
 
-                response = self.trade_factory.create_order_stream_response(user_id, account_type, open_orders)
-                await ws.send(json.dumps(response.model_dump()))
+                if open_orders:
+                    response = self.trade_factory.create_order_stream_response(user_id, account_type, open_orders)
+                    logger.debug(f"User {user_id}: Sending {len(open_orders)} orders: {open_orders}")
+                    await ws.send(json.dumps(response.model_dump()))
+                else:
+                    logger.debug(f"No orders found for user {user_id}, account {account_type}")
+
                 await asyncio.sleep(interval)
 
             except ConnectionClosed:
+                logger.info(f"WebSocket connection closed for user {user_id}")
                 break
             except Exception as e:
-                logger.error(f"Error in stream_orders for user {user_id}: {str(e)}")
+                logger.error(f"Unexpected error in stream_orders for user {user_id}: {str(e)}")
                 await asyncio.sleep(1)
                 continue
-
     async def handle_order_stream_request(self, json_data: dict, ws):
         user_id = json_data.get("user_id", "")
         account_type = json_data.get("account_type", "")

@@ -77,7 +77,7 @@ class WebSocketClient:
                     if msg_type == "handshake_response":
                         self.reconnect_attempts = 0
                     elif msg_type == "trade_request":
-                        await self.trade_manager.handle_trade_request(json_data, self.websocket)
+                        await self.trade_manager.handle_trade_request(json_data, self.websocket, self.trade_manager)
                     elif msg_type == "balance_request":
                         await self.trade_manager.handle_balance_request(json_data, self.websocket)
                     elif msg_type == "close_trade_request":

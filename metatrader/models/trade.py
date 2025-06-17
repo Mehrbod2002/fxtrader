@@ -24,6 +24,7 @@ class PoolTrade(BaseModel):
     ticket: int = 0
     created_at: Optional[datetime] = None
     profit: float = 0.0
+    status: str = "PENDING"
 
 
 class TradeResponse(BaseModel):
