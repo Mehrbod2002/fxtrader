@@ -125,7 +125,7 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 // @Failure 400 {object} map[string]string "Invalid JSON"
 // @Failure 409 {object} map[string]string "User already exists"
 // @Failure 500 {object} map[string]string "Server error"
-// @Router /users/signup [post]
+// @Router /users/edit [post]
 func (h *UserHandler) EditUser(c *gin.Context) {
 	var user models.UserAccount
 	if err := c.ShouldBindJSON(&user); err != nil {

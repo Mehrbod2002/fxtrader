@@ -1206,6 +1206,148 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/referrals": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves all users' referral data with pagination (admin only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Admin"
+                ],
+                "summary": "Get all referrals (Admin)",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Items per page",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Paginated referral data",
+                        "schema": {
+                            "$ref": "#/definitions/api.PaginatedReferralsResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/referrals": {
+            "get": {
+                "security": [
+                    {
+                        "X-Telegram-ID": []
+                    }
+                ],
+                "description": "Retrieves the referral details for the authenticated user (who referred them and who they referred)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "User"
+                ],
+                "summary": "Get user's referral information",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "Page number",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "Items per page",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "User referral data",
+                        "schema": {
+                            "$ref": "#/definitions/api.UserReferralResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/transactions/{id}": {
             "get": {
                 "security": [
@@ -1416,6 +1558,52 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Failed to create subscription",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/copy-trades-all": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Retrieves all copy trade subscriptions for the authenticated user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "CopyTrading"
+                ],
+                "summary": "Get user copy trade subscriptions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.CopyTradeSubscription"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid user ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to retrieve subscriptions",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2499,6 +2687,68 @@ const docTemplate = `{
                 }
             }
         },
+        "/users/edit": {
+            "post": {
+                "description": "Edit new user account via Telegram",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Edit user",
+                "parameters": [
+                    {
+                        "description": "User account details",
+                        "name": "user",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.UserAccount"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "User created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "User already exists",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/users/login": {
             "post": {
                 "description": "Validates a user via Telegram ID",
@@ -2610,7 +2860,7 @@ const docTemplate = `{
         },
         "/users/signup": {
             "post": {
-                "description": "Edit new user account via Telegram",
+                "description": "Creates a new user account via Telegram",
                 "consumes": [
                     "application/json"
                 ],
@@ -2620,7 +2870,7 @@ const docTemplate = `{
                 "tags": [
                     "Users"
                 ],
-                "summary": "Edit user",
+                "summary": "Sign up a new user",
                 "parameters": [
                     {
                         "description": "User account details",
@@ -2867,6 +3117,29 @@ const docTemplate = `{
                 }
             }
         },
+        "api.PaginatedReferralsResponse": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "page": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "total_pages": {
+                    "type": "integer"
+                },
+                "users": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/api.UserReferralResponse"
+                    }
+                }
+            }
+        },
         "api.SymbolUsage": {
             "type": "object",
             "properties": {
@@ -3008,6 +3281,29 @@ const docTemplate = `{
                     "type": "boolean"
                 },
                 "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "api.UserReferralResponse": {
+            "type": "object",
+            "properties": {
+                "referral_code": {
+                    "type": "string"
+                },
+                "referred_by": {
+                    "type": "string"
+                },
+                "referred_users": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "username": {
                     "type": "string"
                 }
             }
@@ -3516,6 +3812,12 @@ const docTemplate = `{
                 },
                 "real_mt5_balance": {
                     "type": "number"
+                },
+                "referral_code": {
+                    "type": "string"
+                },
+                "referred_by": {
+                    "type": "string"
                 },
                 "registration_date": {
                     "type": "string"
