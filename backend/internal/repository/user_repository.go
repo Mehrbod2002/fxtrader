@@ -1,7 +1,5 @@
 package repository
 
-// package repository
-// (No changes needed; provided for reference)
 import (
 	"context"
 	"fmt"
@@ -12,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 type UserRepository interface {
@@ -22,6 +21,9 @@ type UserRepository interface {
 	GetUsersByLeaderStatus(isLeader bool) ([]*models.UserAccount, error)
 	UpdateUser(user *models.UserAccount) error
 	EditUser(user *models.UserAccount) error
+	GetUserByReferralCode(code string) (*models.UserAccount, error)
+	GetUsersReferredBy(code string, page, limit int64) ([]*models.UserAccount, int64, error) // Returns referred users with pagination
+	GetAllReferrals(page, limit int64) ([]*models.UserAccount, int64, error)
 }
 
 type MongoUserRepository struct {
@@ -30,6 +32,24 @@ type MongoUserRepository struct {
 
 func NewUserRepository(client *mongo.Client, dbName, collectionName string) UserRepository {
 	collection := client.Database(dbName).Collection(collectionName)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := collection.Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{
+			Keys:    bson.M{"referral_code": 1},
+			Options: options.Index().SetUnique(true),
+		},
+		{
+			Keys: bson.M{"referred_by": 1},
+		},
+	})
+
+	if err != nil {
+		fmt.Printf("Failed to create indexes: %v\n", err)
+	}
+
 	return &MongoUserRepository{collection: collection}
 }
 
@@ -157,4 +177,66 @@ func (r *MongoUserRepository) GetUsersByLeaderStatus(isLeader bool) ([]*models.U
 		return nil, err
 	}
 	return users, nil
+}
+
+func (r *MongoUserRepository) GetUserByReferralCode(code string) (*models.UserAccount, error) {
+	filter := bson.M{"referral_code": code}
+	var user models.UserAccount
+	err := r.collection.FindOne(context.TODO(), filter).Decode(&user)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	return &user, err
+}
+
+func (r *MongoUserRepository) GetUsersReferredBy(code string, page, limit int64) ([]*models.UserAccount, int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Count total referred users
+	total, err := r.collection.CountDocuments(ctx, bson.M{"referred_by": code})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Fetch paginated referred users
+	skip := (page - 1) * limit
+	opts := options.Find().SetSkip(skip).SetLimit(limit)
+	cursor, err := r.collection.Find(ctx, bson.M{"referred_by": code}, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var users []*models.UserAccount
+	if err := cursor.All(ctx, &users); err != nil {
+		return nil, 0, err
+	}
+
+	return users, total, nil
+}
+
+func (r *MongoUserRepository) GetAllReferrals(page, limit int64) ([]*models.UserAccount, int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	total, err := r.collection.CountDocuments(ctx, bson.M{})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	skip := (page - 1) * limit
+	opts := options.Find().SetSkip(skip).SetLimit(limit)
+	cursor, err := r.collection.Find(ctx, bson.M{}, opts)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer cursor.Close(ctx)
+
+	var users []*models.UserAccount
+	if err := cursor.All(ctx, &users); err != nil {
+		return nil, 0, err
+	}
+
+	return users, total, nil
 }

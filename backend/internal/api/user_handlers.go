@@ -73,6 +73,28 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 		user.Username = "user_" + user.TelegramID
 	}
 
+	var referredBy primitive.ObjectID
+	if req.ReferralCode != "" {
+		referrer, err := h.userService.GetUserByReferralCode(req.ReferralCode)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate referral code"})
+			return
+		}
+		if referrer == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid referral code"})
+			return
+		}
+		referredBy = referrer.ID
+	}
+
+	if user.Username == "" {
+		user.Username = "user_" + user.TelegramID
+	}
+
+	timestamp := time.Now().UnixNano()
+	user.ReferralCode = fmt.Sprintf("%s-%x", user.Username, timestamp)[0:12]
+	user.ReferredBy = referredBy
+
 	if err := h.userService.SignupUser(user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return

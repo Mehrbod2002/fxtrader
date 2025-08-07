@@ -42,7 +42,7 @@ func SetupRoutes(
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "User-Agent", "Referer"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "User-Agent", "Referer", "X-Telegram-ID"},
 		ExposeHeaders:    []string{"Content-Length", "User-Agent", "Referer"},
 		AllowCredentials: true,
 	}))
@@ -90,7 +90,7 @@ func SetupRoutes(
 	{
 		v1.POST("/prices", priceHandler.HandlePrice)
 		v1.POST("/users/signup", userHandler.SignupUser)
-		v1.GET("/users//me/:id", userHandler.GetMe)
+		v1.GET("/users/me/:id", userHandler.GetMe)
 		v1.POST("/users/login", userHandler.Login)
 		v1.GET("/users/:id", middleware.UserAuthMiddleware(userService), userHandler.GetUser)
 		v1.GET("/symbols", symbolHandler.GetAllSymbols)
@@ -99,6 +99,7 @@ func SetupRoutes(
 		v1.POST("/admin/login", adminHandler.AdminLogin)
 		v1.POST("/leader-requests", middleware.UserAuthMiddleware(userService), leaderRequestHandler.CreateLeaderRequest)
 		v1.GET("/copy-trade-leaders", middleware.UserAuthMiddleware(userService), leaderRequestHandler.GetApprovedLeaders)
+		v1.GET("/referrals", middleware.UserAuthMiddleware(userService), adminHandler.GetUserReferrals)
 
 		user := v1.Group("/").Use(middleware.UserAuthMiddleware(userService))
 		{
@@ -135,6 +136,7 @@ func SetupRoutes(
 			admin.GET("/users", userHandler.GetAllUsers)
 			admin.GET("/users/:id", userHandler.GetMe)
 			admin.PUT("/users/edit", userHandler.EditUser)
+			admin.PUT("/users/activation", adminHandler.UpdateUserActivation)
 			admin.GET("/trades", tradeHandler.GetAllTrades)
 			admin.GET("/trades/:id", tradeHandler.GetTrade)
 			admin.GET("/transactions", transactionHandler.GetAllTransactions)
@@ -142,12 +144,12 @@ func SetupRoutes(
 			admin.GET("/transactions/user/:user_id", transactionHandler.GetTransactionsByUser)
 			admin.GET("/transactions/:id", transactionHandler.GetTransactionByID)
 			admin.PUT("/transactions/:id", transactionHandler.ReviewTransaction)
-			admin.PUT("/users/activation", adminHandler.UpdateUserActivation)
 			admin.POST("/leader-requests/:id/approve", leaderRequestHandler.ApproveLeaderRequest)
 			admin.POST("/leader-requests/:id/deny", leaderRequestHandler.DenyLeaderRequest)
 			admin.GET("/leader-requests", leaderRequestHandler.GetPendingLeaderRequests)
 			admin.GET("/copy-trade-leaders", leaderRequestHandler.GetApprovedLeaders)
 			admin.GET("/copy-trades", copyTradeHandler.GetAllUserSubscriptions)
+			admin.GET("/referrals", adminHandler.GetAllReferrals) // New admin referral endpoint
 		}
 	}
 

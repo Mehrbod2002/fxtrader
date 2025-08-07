@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/mehrbod2002/fxtrader/internal/middleware"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
@@ -125,4 +126,155 @@ func (h *AdminHandler) AdminLogin(c *gin.Context) {
 		"status": "Login successful",
 		"token":  token,
 	})
+}
+
+type UserReferralResponse struct {
+	UserID        string   `json:"user_id"`
+	Username      string   `json:"username"`
+	ReferralCode  string   `json:"referral_code"`
+	ReferredBy    string   `json:"referred_by"`
+	ReferredUsers []string `json:"referred_users"`
+}
+
+type PaginatedReferralsResponse struct {
+	Users      []UserReferralResponse `json:"users"`
+	Total      int64                  `json:"total"`
+	Page       int64                  `json:"page"`
+	Limit      int64                  `json:"limit"`
+	TotalPages int64                  `json:"total_pages"`
+}
+
+// @Summary Get user's referral information
+// @Description Retrieves the referral details for the authenticated user (who referred them and who they referred)
+// @Tags User
+// @Accept json
+// @Produce json
+// @Security X-Telegram-ID
+// @Param page query int false "Page number" default(1)
+// @Param limit query int false "Items per page" default(10)
+// @Success 200 {object} UserReferralResponse "User referral data"
+// @Failure 400 {object} map[string]string "Invalid query parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/v1/referrals [get]
+func (h *AdminHandler) GetUserReferrals(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	userIDStr, ok := userID.(string)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user ID format"})
+		return
+	}
+
+	user, err := h.userService.GetUser(userIDStr)
+	if err != nil || user == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	page, err := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
+	if err != nil || page < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page number"})
+		return
+	}
+	limit, err := strconv.ParseInt(c.DefaultQuery("limit", "10"), 10, 64)
+	if err != nil || limit < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid limit"})
+		return
+	}
+
+	referredUsers, _, err := h.userService.GetUsersReferredBy(user.ReferralCode, page, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch referred users"})
+		return
+	}
+
+	referredUserIDs := make([]string, len(referredUsers))
+	for i, u := range referredUsers {
+		referredUserIDs[i] = u.ID.Hex()
+	}
+
+	response := UserReferralResponse{
+		UserID:        user.ID.Hex(),
+		Username:      user.Username,
+		ReferralCode:  user.ReferralCode,
+		ReferredBy:    user.ReferredBy.String(),
+		ReferredUsers: referredUserIDs,
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// @Summary Get all referrals (Admin)
+// @Description Retrieves all users' referral data with pagination (admin only)
+// @Tags Admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param page query int false "Page number" default(1)
+// @Param limit query int false "Items per page" default(10)
+// @Success 200 {object} PaginatedReferralsResponse "Paginated referral data"
+// @Failure 400 {object} map[string]string "Invalid query parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/v1/admin/referrals [get]
+func (h *AdminHandler) GetAllReferrals(c *gin.Context) {
+	_, exists := c.Get("is_admin")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Admin access required"})
+		return
+	}
+
+	page, err := strconv.ParseInt(c.DefaultQuery("page", "1"), 10, 64)
+	if err != nil || page < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid page number"})
+		return
+	}
+	limit, err := strconv.ParseInt(c.DefaultQuery("limit", "10"), 10, 64)
+	if err != nil || limit < 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid limit"})
+		return
+	}
+
+	users, total, err := h.userService.GetAllReferrals(page, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch referrals"})
+		return
+	}
+
+	responseUsers := make([]UserReferralResponse, len(users))
+	for i, user := range users {
+		referredUsers, _, err := h.userService.GetUsersReferredBy(user.ReferralCode, 1, 1000)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch referred users"})
+			return
+		}
+
+		referredUserIDs := make([]string, len(referredUsers))
+		for j, u := range referredUsers {
+			referredUserIDs[j] = u.ID.Hex()
+		}
+
+		responseUsers[i] = UserReferralResponse{
+			UserID:        user.ID.Hex(),
+			Username:      user.Username,
+			ReferralCode:  user.ReferralCode,
+			ReferredBy:    user.ReferredBy.Hex(),
+			ReferredUsers: referredUserIDs,
+		}
+	}
+
+	response := PaginatedReferralsResponse{
+		Users:      responseUsers,
+		Total:      total,
+		Page:       page,
+		Limit:      limit,
+		TotalPages: (total + limit - 1) / limit,
+	}
+
+	c.JSON(http.StatusOK, response)
 }

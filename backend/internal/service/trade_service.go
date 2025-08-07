@@ -271,7 +271,7 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 			trade.CloseTime = &time.Time{}
 			*trade.CloseTime = time.Now()
 			trade.CloseReason = tradeResponse.Status
-			err = s.tradeRepo.SaveTrade(trade)
+			_ = s.tradeRepo.SaveTrade(trade)
 			if accountType == "DEMO" {
 				user.DemoMT5Balance += requiredMargin
 			} else {
@@ -295,7 +295,7 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 		trade.CloseTime = &time.Time{}
 		*trade.CloseTime = time.Now()
 		trade.CloseReason = "TIMEOUT"
-		err = s.tradeRepo.SaveTrade(trade)
+		_ = s.tradeRepo.SaveTrade(trade)
 		if accountType == "DEMO" {
 			user.DemoMT5Balance += requiredMargin
 		} else {
@@ -311,34 +311,6 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 		}
 	}()
 
-	// var expirationTime string
-	// if expiration != nil {
-	// 	expirationTime = expiration.Format(time.RFC3339)
-	// } else {
-	// 	expirationTime = "N/A"
-	// }
-	// message := fmt.Sprintf(`✅ معامله برای %s با موفقیت ثبت شد:
-	// 	وضعیت: %s
-	// 	نوع حساب: %s
-	// 	نوع معامله: %s
-	// 	خرید/فروش: %s
-	// 	حجم: %.2f
-	// 	قیمت ورود: %.2f
-	// 	Stop Loss: %.2f
-	// 	Take Profit: %.2f
-	// 	Expiration: %s`,
-	// 	symbol,
-	// 	trade.Status,
-	// 	accountType,
-	// 	orderType,
-	// 	string(tradeType),
-	// 	volume,
-	// 	entryPrice,
-	// 	stopLoss,
-	// 	takeProfit,
-	// 	expirationTime)
-
-	// s.telegramService.SendMessage(user.TelegramID, message)
 	return trade, tradeResponse, nil
 }
 
