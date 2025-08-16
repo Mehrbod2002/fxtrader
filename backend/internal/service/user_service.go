@@ -21,6 +21,9 @@ type UserService interface {
 	GetUserByReferralCode(code string) (*models.UserAccount, error)
 	GetUsersReferredBy(code string, page, limit int64) ([]*models.UserAccount, int64, error)
 	GetAllReferrals(page, limit int64) ([]*models.UserAccount, int64, error)
+	CreateAccount(account *models.UserAccount) error
+	GetUserAccounts(userID string) ([]*models.UserAccount, error)
+	DeleteAccount(userID string, accountID primitive.ObjectID) error
 }
 
 type userService struct {
@@ -80,4 +83,22 @@ func (s *userService) GetUsersReferredBy(code string, page, limit int64) ([]*mod
 
 func (s *userService) GetAllReferrals(page, limit int64) ([]*models.UserAccount, int64, error) {
 	return s.userRepo.GetAllReferrals(page, limit)
+}
+
+func (s *userService) CreateAccount(account *models.UserAccount) error {
+	if account.ID.IsZero() {
+		account.ID = primitive.NewObjectID()
+		account.RegistrationDate = time.Now().Format(time.RFC3339)
+		account.IsActive = false
+		return s.userRepo.SaveUser(account)
+	}
+	return s.userRepo.UpdateUser(account)
+}
+
+func (s *userService) GetUserAccounts(userID string) ([]*models.UserAccount, error) {
+	return s.userRepo.GetUserAccounts(userID)
+}
+
+func (s *userService) DeleteAccount(userID string, accountID primitive.ObjectID) error {
+	return s.userRepo.DeleteAccount(userID, accountID)
 }

@@ -41,7 +41,6 @@ type tradeService struct {
 	streamCtx           map[string]context.CancelFunc
 	ordersResponseChans map[string]chan models.OrderStreamResponse
 	ordersResponseMu    sync.Mutex
-	// telegramService     TelegramService
 }
 
 func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, userRepo repository.UserRepository, logService LogService, hub *ws.Hub, socketServer *socket.WebSocketServer, copyTradeService CopyTradeService) (interfaces.TradeService, error) {
@@ -58,7 +57,6 @@ func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository
 		tradeResponseChans:  make(map[string]chan interfaces.TradeResponse),
 		streamCtx:           make(map[string]context.CancelFunc),
 		ordersResponseChans: make(map[string]chan models.OrderStreamResponse),
-		// telegramService:     telegramService,
 	}, nil
 }
 
@@ -95,10 +93,15 @@ func (s *tradeService) sendToMT5(msg interface{}) error {
 	}
 }
 
-func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType models.TradeType, orderType string, leverage int, volume, entryPrice, stopLoss, takeProfit float64, expiration *time.Time) (*models.TradeHistory, interfaces.TradeResponse, error) {
+func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string, tradeType models.TradeType, orderType string, leverage int, volume, entryPrice, stopLoss, takeProfit float64, expiration *time.Time) (*models.TradeHistory, interfaces.TradeResponse, error) {
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return nil, interfaces.TradeResponse{}, errors.New("invalid user ID")
+	}
+
+	accountObjID, err := primitive.ObjectIDFromHex(accountID)
+	if err != nil {
+		return nil, interfaces.TradeResponse{}, errors.New("invalid account ID")
 	}
 
 	user, err := s.userRepo.GetUserByID(userObjID)
@@ -107,6 +110,14 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 	}
 	if user == nil {
 		return nil, interfaces.TradeResponse{}, errors.New("user not found")
+	}
+
+	account, err := s.userRepo.GetUserByID(accountObjID)
+	if err != nil {
+		return nil, interfaces.TradeResponse{}, errors.New("failed to fetch account")
+	}
+	if account == nil || account.TelegramID != userID {
+		return nil, interfaces.TradeResponse{}, errors.New("account not found or does not belong to user")
 	}
 
 	if !slices.Contains(user.AccountTypes, accountType) {
@@ -180,6 +191,7 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 	trade := &models.TradeHistory{
 		ID:          primitive.NewObjectID(),
 		UserID:      userObjID,
+		AccountID:   accountObjID,
 		Symbol:      symbol,
 		TradeType:   tradeType,
 		OrderType:   orderType,
@@ -198,6 +210,7 @@ func (s *tradeService) PlaceTrade(userID, symbol, accountType string, tradeType 
 		"type":         "trade_request",
 		"trade_id":     trade.ID.Hex(),
 		"user_id":      trade.UserID.Hex(),
+		"account_id":   trade.AccountID.Hex(),
 		"account_type": accountType,
 		"symbol":       trade.Symbol,
 		"trade_type":   trade.TradeType,
@@ -387,6 +400,7 @@ func (s *tradeService) HandleTradeResponse(response interfaces.TradeResponse) er
 
 	metadata := map[string]interface{}{
 		"trade_id":         response.TradeID,
+		"account_id":       trade.AccountID.Hex(),
 		"status":           response.Status,
 		"matched_trade_id": response.MatchedTradeID,
 	}
@@ -436,6 +450,11 @@ func (s *tradeService) HandleTradeRequest(request map[string]interface{}) error 
 	userID, ok := request["user_id"].(string)
 	if !ok {
 		return errors.New("missing or invalid user_id")
+	}
+
+	accountID, ok := request["account_id"].(string)
+	if !ok {
+		return errors.New("missing or invalid account_id")
 	}
 
 	symbol, ok := request["symbol"].(string)
@@ -491,7 +510,7 @@ func (s *tradeService) HandleTradeRequest(request map[string]interface{}) error 
 
 	tradeType := models.TradeType(tradeTypeStr)
 
-	_, _, err := s.PlaceTrade(userID, symbol, accountTypeStr, tradeType, orderType, int(leverage), volume, entryPrice, stopLoss, takeProfit, expiration)
+	_, _, err := s.PlaceTrade(userID, accountID, symbol, accountTypeStr, tradeType, orderType, int(leverage), volume, entryPrice, stopLoss, takeProfit, expiration)
 	return err
 }
 
@@ -527,7 +546,7 @@ func (s *tradeService) RequestBalance(userID, accountType string) (float64, erro
 	return balance, nil
 }
 
-func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfaces.TradeResponse, error) {
+func (s *tradeService) CloseTrade(tradeID, userID, accountType, accountID string) (interfaces.TradeResponse, error) {
 	tradeObjID, err := primitive.ObjectIDFromHex(tradeID)
 	if err != nil {
 		return interfaces.TradeResponse{}, errors.New("invalid trade ID")
@@ -536,6 +555,10 @@ func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfac
 	if err != nil {
 		return interfaces.TradeResponse{}, errors.New("invalid user ID")
 	}
+	accountObjID, err := primitive.ObjectIDFromHex(accountID)
+	if err != nil {
+		return interfaces.TradeResponse{}, errors.New("invalid account ID")
+	}
 	trade, err := s.tradeRepo.GetTradeByID(tradeObjID)
 	if err != nil {
 		return interfaces.TradeResponse{}, err
@@ -543,8 +566,8 @@ func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfac
 	if trade == nil {
 		return interfaces.TradeResponse{}, errors.New("trade not found")
 	}
-	if trade.UserID != userObjID {
-		return interfaces.TradeResponse{}, errors.New("trade belongs to another user")
+	if trade.UserID != userObjID || trade.AccountID != accountObjID {
+		return interfaces.TradeResponse{}, errors.New("trade belongs to another user or account")
 	}
 	if trade.AccountType != accountType {
 		return interfaces.TradeResponse{}, fmt.Errorf("trade is not associated with %s account", accountType)
@@ -554,6 +577,7 @@ func (s *tradeService) CloseTrade(tradeID, userID, accountType string) (interfac
 		"type":         "close_trade_request",
 		"trade_id":     tradeID,
 		"user_id":      userID,
+		"account_id":   accountID,
 		"account_type": accountType,
 		"timestamp":    time.Now().Unix(),
 	}
@@ -701,6 +725,7 @@ func (s *tradeService) HandleCloseTradeResponse(response interfaces.TradeRespons
 
 	metadata := map[string]interface{}{
 		"trade_id":     response.TradeID,
+		"account_id":   trade.AccountID.Hex(),
 		"account_type": response.AccountType,
 		"close_price":  response.ClosePrice,
 		"close_reason": response.CloseReason,
@@ -738,6 +763,7 @@ func (s *tradeService) HandleOrderStreamResponse(response models.OrderStreamResp
 		trade := models.TradeHistory{
 			ID:             trade.ID,
 			UserID:         response.UserID,
+			AccountID:      trade.AccountID,
 			Symbol:         trade.Symbol,
 			TradeType:      models.TradeType(trade.TradeType),
 			OrderType:      trade.OrderType,
@@ -763,6 +789,7 @@ func (s *tradeService) HandleOrderStreamResponse(response models.OrderStreamResp
 		} else {
 			existingTrade.Status = trade.Status
 			existingTrade.AccountType = trade.AccountType
+			existingTrade.AccountID = trade.AccountID
 			existingTrade.Volume = trade.Volume
 			if err = s.tradeRepo.SaveTrade(existingTrade); err != nil {
 				continue
@@ -796,7 +823,7 @@ func (s *tradeService) HandleOrderStreamResponse(response models.OrderStreamResp
 	return nil
 }
 
-func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, accountType string, entryPrice, volume float64) (interfaces.TradeResponse, error) {
+func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, accountType, accountID string, entryPrice, volume float64) (interfaces.TradeResponse, error) {
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return interfaces.TradeResponse{}, errors.New("invalid user ID")
@@ -805,10 +832,19 @@ func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, account
 	if err != nil {
 		return interfaces.TradeResponse{}, errors.New("invalid trade ID")
 	}
+	accountObjID, err := primitive.ObjectIDFromHex(accountID)
+	if err != nil {
+		return interfaces.TradeResponse{}, errors.New("invalid account ID")
+	}
 
 	user, err := s.userRepo.GetUserByID(userObjID)
 	if err != nil || user == nil {
 		return interfaces.TradeResponse{}, errors.New("user not found")
+	}
+
+	account, err := s.userRepo.GetUserByID(accountObjID)
+	if err != nil || account == nil || account.TelegramID != userID {
+		return interfaces.TradeResponse{}, errors.New("account not found or does not belong to user")
 	}
 
 	trade, err := s.tradeRepo.GetTradeByID(tradeObjID)
@@ -819,7 +855,7 @@ func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, account
 		return interfaces.TradeResponse{}, errors.New("trade not found")
 	}
 
-	if trade.UserID != userObjID {
+	if trade.UserID != userObjID || trade.AccountID != accountObjID {
 		return interfaces.TradeResponse{}, errors.New("trade does not belong to user or account")
 	}
 	if trade.Status != string(models.TradeStatusPending) {
@@ -839,6 +875,7 @@ func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, account
 		"type":         "modify_trade_request",
 		"trade_id":     tradeID,
 		"user_id":      userID,
+		"account_id":   accountID,
 		"account_type": accountType,
 		"entry_price":  entryPrice,
 		"volume":       volume,

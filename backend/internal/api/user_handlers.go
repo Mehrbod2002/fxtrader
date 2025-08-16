@@ -18,6 +18,10 @@ type LoginRequest struct {
 	TelegramID string `json:"telegram_id" binding:"required"`
 }
 
+type CreateAccountRequest struct {
+	AccountName string `json:"account_name" binding:"required"`
+}
+
 type UserHandler struct {
 	userService service.UserService
 	logService  service.LogService
@@ -113,6 +117,139 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 		"user_id": user.ID.Hex(),
 		"user":    user,
 	})
+}
+
+// @Summary Create a new user account
+// @Description Creates a new user account with only an account name
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param account body CreateAccountRequest true "Account name"
+// @Success 201 {object} map[string]interface{} "Account created"
+// @Failure 400 {object} map[string]string "Invalid JSON"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /accounts [post]
+func (h *UserHandler) CreateAccount(c *gin.Context) {
+	var req CreateAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	userObjID, err := primitive.ObjectIDFromHex(userID.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	account := &models.UserAccount{
+		AccountName: req.AccountName,
+		TelegramID:  userID.(string),
+	}
+
+	if err := h.userService.CreateAccount(account); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create account"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"account_name": req.AccountName,
+		"user_id":      userID,
+	}
+	if err := h.logService.LogAction(userObjID, "CreateAccount", "User account created", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"status":       "Account created",
+		"account_id":   account.ID.Hex(),
+		"account_name": account.AccountName,
+	})
+}
+
+// @Summary Get user accounts
+// @Description Retrieves a list of accounts for the authenticated user
+// @Tags Users
+// @Produce json
+// @Success 200 {array} models.UserAccount
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /accounts [get]
+func (h *UserHandler) GetUserAccounts(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	accounts, err := h.userService.GetUserAccounts(userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve accounts"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"user_id": userID,
+		"count":   len(accounts),
+	}
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetUserAccounts", "Retrieved user accounts", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
+
+	c.JSON(http.StatusOK, accounts)
+}
+
+// @Summary Delete user account
+// @Description Deletes a user account by its ID
+// @Tags Users
+// @Produce json
+// @Param id path string true "Account ID"
+// @Success 200 {object} map[string]string "Account deleted"
+// @Failure 400 {object} map[string]string "Invalid account ID"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 404 {object} map[string]string "Account not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /accounts/{id} [delete]
+func (h *UserHandler) DeleteAccount(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	accountID := c.Param("id")
+	accountObjID, err := primitive.ObjectIDFromHex(accountID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account ID"})
+		return
+	}
+
+	err = h.userService.DeleteAccount(userID.(string), accountObjID)
+	if err != nil {
+		if err.Error() == "account not found" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete account"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"user_id":    userID,
+		"account_id": accountID,
+	}
+	if err := h.logService.LogAction(primitive.ObjectID{}, "DeleteAccount", "User account deleted", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "Account deleted"})
 }
 
 // @Summary Edit user

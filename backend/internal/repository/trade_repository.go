@@ -43,6 +43,7 @@ func (r *MongoTradeRepository) SaveTrade(trade *models.TradeHistory) error {
 	update := bson.M{
 		"$set": bson.M{
 			"trade_id":         trade.ID.Hex(),
+			"account_id":       trade.AccountID,
 			"account_type":     trade.AccountType,
 			"trade_type":       trade.TradeType,
 			"order_type":       trade.OrderType,

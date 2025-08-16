@@ -22,8 +22,10 @@ type UserRepository interface {
 	UpdateUser(user *models.UserAccount) error
 	EditUser(user *models.UserAccount) error
 	GetUserByReferralCode(code string) (*models.UserAccount, error)
-	GetUsersReferredBy(code string, page, limit int64) ([]*models.UserAccount, int64, error) // Returns referred users with pagination
+	GetUsersReferredBy(code string, page, limit int64) ([]*models.UserAccount, int64, error)
 	GetAllReferrals(page, limit int64) ([]*models.UserAccount, int64, error)
+	GetUserAccounts(userID string) ([]*models.UserAccount, error)
+	DeleteAccount(userID string, accountID primitive.ObjectID) error
 }
 
 type MongoUserRepository struct {
@@ -239,4 +241,35 @@ func (r *MongoUserRepository) GetAllReferrals(page, limit int64) ([]*models.User
 	}
 
 	return users, total, nil
+}
+
+func (r *MongoUserRepository) GetUserAccounts(userID string) ([]*models.UserAccount, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cursor, err := r.collection.Find(ctx, bson.M{"telegram_id": userID})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var accounts []*models.UserAccount
+	if err := cursor.All(ctx, &accounts); err != nil {
+		return nil, err
+	}
+	return accounts, nil
+}
+
+func (r *MongoUserRepository) DeleteAccount(userID string, accountID primitive.ObjectID) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := r.collection.DeleteOne(ctx, bson.M{"_id": accountID, "telegram_id": userID})
+	if err != nil {
+		return fmt.Errorf("failed to delete account: %w", err)
+	}
+	if result.DeletedCount == 0 {
+		return fmt.Errorf("account not found")
+	}
+	return nil
 }

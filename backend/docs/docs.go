@@ -15,6 +15,175 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/accounts": {
+            "get": {
+                "description": "Retrieves a list of accounts for the authenticated user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Get user accounts",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/models.UserAccount"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Creates a new user account with only an account name",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Create a new user account",
+                "parameters": [
+                    {
+                        "description": "Account name",
+                        "name": "account",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.CreateAccountRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Account created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/accounts/{id}": {
+            "delete": {
+                "description": "Deletes a user account by its ID",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Delete user account",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Account ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Account deleted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid account ID",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Account not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/admin/login": {
             "post": {
                 "description": "Authenticates an admin user and returns a JWT token",
@@ -2203,7 +2372,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Allows an authenticated user to place a trade order",
+                "description": "Allows an authenticated user to place a trade order on a specific account",
                 "consumes": [
                     "application/json"
                 ],
@@ -2244,6 +2413,15 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Invalid account",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -2378,7 +2556,7 @@ const docTemplate = `{
             }
         },
         "/trades/{id}/close": {
-            "post": {
+            "put": {
                 "security": [
                     {
                         "BearerAuth": []
@@ -2431,7 +2609,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "Forbidden (trade belongs to another user)",
+                        "description": "Forbidden (trade belongs to another user or account)",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3038,6 +3216,17 @@ const docTemplate = `{
                 }
             }
         },
+        "api.CreateAccountRequest": {
+            "type": "object",
+            "required": [
+                "account_name"
+            ],
+            "properties": {
+                "account_name": {
+                    "type": "string"
+                }
+            }
+        },
         "api.CreateLeaderRequest": {
             "type": "object",
             "required": [
@@ -3074,9 +3263,13 @@ const docTemplate = `{
         "api.ModifyTradeRequest": {
             "type": "object",
             "required": [
+                "account_id",
                 "account_type"
             ],
             "properties": {
+                "account_id": {
+                    "type": "string"
+                },
                 "account_type": {
                     "type": "string"
                 },
@@ -3154,6 +3347,7 @@ const docTemplate = `{
         "api.TradeRequest": {
             "type": "object",
             "required": [
+                "account_id",
                 "account_type",
                 "leverage",
                 "order_type",
@@ -3162,6 +3356,9 @@ const docTemplate = `{
                 "volume"
             ],
             "properties": {
+                "account_id": {
+                    "type": "string"
+                },
                 "account_type": {
                     "type": "string"
                 },
@@ -3610,6 +3807,9 @@ const docTemplate = `{
         "models.TradeHistory": {
             "type": "object",
             "properties": {
+                "accountID": {
+                    "type": "string"
+                },
                 "accountType": {
                     "type": "string"
                 },

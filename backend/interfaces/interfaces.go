@@ -9,8 +9,8 @@ import (
 )
 
 type TradeService interface {
-	PlaceTrade(userID, symbol, accountType string, tradeType models.TradeType, orderType string, leverage int, volume, entryPrice, stopLoss, takeProfit float64, expiration *time.Time) (*models.TradeHistory, TradeResponse, error)
-	CloseTrade(tradeID, userID, accountType string) (TradeResponse, error)
+	PlaceTrade(userID, accountID, symbol, accountType string, tradeType models.TradeType, orderType string, leverage int, volume, entryPrice, stopLoss, takeProfit float64, expiration *time.Time) (*models.TradeHistory, TradeResponse, error)
+	CloseTrade(tradeID, userID, accountType, accountID string) (TradeResponse, error)
 	StreamTrades(userID, accountType string) (chan models.OrderStreamResponse, error)
 	GetTrade(id string) (*models.TradeHistory, error)
 	GetTradesByUserID(userID string) ([]*models.TradeHistory, error)
@@ -23,7 +23,7 @@ type TradeService interface {
 	HandleBalanceResponse(request BalanceResponse) error
 	RequestBalance(userID, accountType string) (float64, error)
 	RegisterMT5Connection(conn *websocket.Conn)
-	ModifyTrade(ctx context.Context, userID, tradeID, accountType string, entryPrice, volume float64) (TradeResponse, error)
+	ModifyTrade(ctx context.Context, userID, tradeID, accountType, accountID string, entryPrice, volume float64) (TradeResponse, error)
 }
 
 type TradeResponse struct {

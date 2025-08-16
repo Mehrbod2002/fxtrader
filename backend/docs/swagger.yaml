@@ -45,6 +45,13 @@ definitions:
     - allocated_amount
     - leader_id
     type: object
+  api.CreateAccountRequest:
+    properties:
+      account_name:
+        type: string
+    required:
+    - account_name
+    type: object
   api.CreateLeaderRequest:
     properties:
       reason:
@@ -68,6 +75,8 @@ definitions:
     type: object
   api.ModifyTradeRequest:
     properties:
+      account_id:
+        type: string
       account_type:
         type: string
       entry_price:
@@ -75,6 +84,7 @@ definitions:
       volume:
         type: number
     required:
+    - account_id
     - account_type
     type: object
   api.OverviewResponse:
@@ -120,6 +130,8 @@ definitions:
     type: object
   api.TradeRequest:
     properties:
+      account_id:
+        type: string
       account_type:
         type: string
       entry_price:
@@ -153,6 +165,7 @@ definitions:
       volume:
         type: number
     required:
+    - account_id
     - account_type
     - leverage
     - order_type
@@ -422,6 +435,8 @@ definitions:
     type: object
   models.TradeHistory:
     properties:
+      accountID:
+        type: string
       accountType:
         type: string
       closePrice:
@@ -579,6 +594,118 @@ definitions:
 info:
   contact: {}
 paths:
+  /accounts:
+    get:
+      description: Retrieves a list of accounts for the authenticated user
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.UserAccount'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get user accounts
+      tags:
+      - Users
+    post:
+      consumes:
+      - application/json
+      description: Creates a new user account with only an account name
+      parameters:
+      - description: Account name
+        in: body
+        name: account
+        required: true
+        schema:
+          $ref: '#/definitions/api.CreateAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Account created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid JSON
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new user account
+      tags:
+      - Users
+  /accounts/{id}:
+    delete:
+      description: Deletes a user account by its ID
+      parameters:
+      - description: Account ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Account deleted
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid account ID
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Account not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete user account
+      tags:
+      - Users
   /admin/login:
     post:
       consumes:
@@ -1986,7 +2113,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Allows an authenticated user to place a trade order
+      description: Allows an authenticated user to place a trade order on a specific
+        account
       parameters:
       - description: Trade order data
         in: body
@@ -2010,6 +2138,12 @@ paths:
             type: object
         "401":
           description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Invalid account
           schema:
             additionalProperties:
               type: string
@@ -2071,7 +2205,7 @@ paths:
       tags:
       - Trades
   /trades/{id}/close:
-    post:
+    put:
       consumes:
       - application/json
       description: Allows an authenticated user to close an open trade
@@ -2102,7 +2236,7 @@ paths:
               type: string
             type: object
         "403":
-          description: Forbidden (trade belongs to another user)
+          description: Forbidden (trade belongs to another user or account)
           schema:
             additionalProperties:
               type: string

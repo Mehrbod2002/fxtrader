@@ -29,7 +29,7 @@ func NewTradeHandler(tradeService interfaces.TradeService, logService service.Lo
 }
 
 // @Summary Place a new trade
-// @Description Allows an authenticated user to place a trade order
+// @Description Allows an authenticated user to place a trade order on a specific account
 // @Tags Trades
 // @Accept json
 // @Produce json
@@ -38,6 +38,7 @@ func NewTradeHandler(tradeService interfaces.TradeService, logService service.Lo
 // @Success 201 {object} map[string]interface{} "Trade placed"
 // @Failure 400 {object} map[string]string "Invalid JSON or parameters"
 // @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 403 {object} map[string]string "Invalid account"
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /trades [post]
 func (h *TradeHandler) PlaceTrade(c *gin.Context) {
@@ -59,7 +60,13 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 	}
 
 	userID := c.GetString("user_id")
-	trade, tradeResponse, err := h.tradeService.PlaceTrade(userID, req.SymbolName, req.AccountType, req.TradeType, req.OrderType, req.Leverage, req.Volume, req.EntryPrice, req.StopLoss, req.TakeProfit, req.Expiration)
+	_, err := primitive.ObjectIDFromHex(req.AccountID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account ID"})
+		return
+	}
+
+	trade, tradeResponse, err := h.tradeService.PlaceTrade(userID, req.AccountID, req.SymbolName, req.AccountType, req.TradeType, req.OrderType, req.Leverage, req.Volume, req.EntryPrice, req.StopLoss, req.TakeProfit, req.Expiration)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -67,6 +74,7 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 
 	metadata := map[string]interface{}{
 		"user_id":    userID,
+		"account_id": req.AccountID,
 		"trade_id":   trade.ID.Hex(),
 		"symbol":     req.SymbolName,
 		"trade_type": req.TradeType,
@@ -79,6 +87,7 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{
 		"status":           "Trade placed",
 		"trade_id":         trade.ID.Hex(),
+		"account_id":       req.AccountID,
 		"trade_status":     trade.Status,
 		"matched_trade_id": trade.MatchedTradeID,
 		"mt5_response":     tradeResponse,
@@ -95,10 +104,10 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 // @Success 200 {object} map[string]interface{} "Trade close requested"
 // @Failure 400 {object} map[string]string "Invalid trade ID"
 // @Failure 401 {object} map[string]string "Unauthorized"
-// @Failure 403 {object} map[string]string "Forbidden (trade belongs to another user)"
+// @Failure 403 {object} map[string]string "Forbidden (trade belongs to another user or account)"
 // @Failure 404 {object} map[string]string "Trade not found"
 // @Failure 500 {object} map[string]string "Server error"
-// @Router /trades/{id}/close [post]
+// @Router /trades/{id}/close [put]
 func (h *TradeHandler) CloseTrade(c *gin.Context) {
 	tradeID := c.Param("id")
 	userID := c.GetString("user_id")
@@ -117,7 +126,7 @@ func (h *TradeHandler) CloseTrade(c *gin.Context) {
 		return
 	}
 
-	closeResponse, err := h.tradeService.CloseTrade(tradeID, userID, trade.AccountType)
+	closeResponse, err := h.tradeService.CloseTrade(tradeID, userID, trade.AccountType, trade.AccountID.Hex())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -125,8 +134,9 @@ func (h *TradeHandler) CloseTrade(c *gin.Context) {
 
 	userObjID, _ := primitive.ObjectIDFromHex(userID)
 	metadata := map[string]interface{}{
-		"user_id":  userID,
-		"trade_id": tradeID,
+		"user_id":    userID,
+		"account_id": trade.AccountID.Hex(),
+		"trade_id":   tradeID,
 	}
 	if err := h.logService.LogAction(userObjID, "CloseTrade", "Trade close requested", c.ClientIP(), metadata); err != nil {
 		log.Printf("error: %v", err)
@@ -135,6 +145,7 @@ func (h *TradeHandler) CloseTrade(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":       "Trade closed",
 		"trade_id":     tradeID,
+		"account_id":   trade.AccountID.Hex(),
 		"mt5_response": closeResponse,
 	})
 }
@@ -254,8 +265,9 @@ func (h *TradeHandler) GetTrade(c *gin.Context) {
 
 	userObjID, _ := primitive.ObjectIDFromHex(userID)
 	metadata := map[string]interface{}{
-		"user_id":  userID,
-		"trade_id": tradeID,
+		"user_id":    userID,
+		"account_id": trade.AccountID.Hex(),
+		"trade_id":   tradeID,
 	}
 	if err := h.logService.LogAction(userObjID, "GetTrade", "Trade data retrieved", c.ClientIP(), metadata); err != nil {
 		log.Printf("error: %v", err)
@@ -343,7 +355,7 @@ func (h *TradeHandler) ModifyTrade(c *gin.Context) {
 		return
 	}
 
-	response, err := h.tradeService.ModifyTrade(c.Request.Context(), userID, tradeID, req.AccountType, req.EntryPrice, req.Volume)
+	response, err := h.tradeService.ModifyTrade(c.Request.Context(), userID, tradeID, req.AccountType, req.AccountID, req.EntryPrice, req.Volume)
 	if err != nil {
 		if err.Error() == "timeout waiting for modify response" {
 			c.JSON(http.StatusRequestTimeout, gin.H{"error": err.Error()})
@@ -360,6 +372,7 @@ type ModifyTradeRequest struct {
 	EntryPrice  float64 `json:"entry_price" binding:"omitempty,gt=0"`
 	Volume      float64 `json:"volume" binding:"omitempty,gt=0"`
 	AccountType string  `json:"account_type" binding:"required"`
+	AccountID   string  `json:"account_id" binding:"required"`
 }
 
 type TradeRequest struct {
@@ -373,4 +386,5 @@ type TradeRequest struct {
 	TakeProfit  float64          `json:"take_profit" binding:"omitempty,gte=0"`
 	Expiration  *time.Time       `json:"expiration" binding:"omitempty"`
 	AccountType string           `json:"account_type" binding:"required"`
+	AccountID   string           `json:"account_id" binding:"required"`
 }

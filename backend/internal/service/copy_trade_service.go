@@ -136,6 +136,7 @@ func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory, account
 		followerVolume := math.Min(sub.AllocatedAmount, followerBalance) * volumeRatio
 		followerTrade, _, err := s.tradeService.PlaceTrade(
 			sub.FollowerID,
+			"copy_trade_account",
 			leaderTrade.Symbol,
 			accountType,
 			leaderTrade.TradeType,

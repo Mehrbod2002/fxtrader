@@ -10,6 +10,7 @@ type TradeHistory struct {
 	ID             primitive.ObjectID `bson:"_id"`
 	UserID         primitive.ObjectID `bson:"user_id"`
 	Symbol         string             `bson:"symbol"`
+	AccountID      primitive.ObjectID `bson:"account_id"`
 	TradeType      TradeType          `bson:"trade_type"`
 	OrderType      string             `bson:"order_type"`
 	Leverage       int                `bson:"leverage"`

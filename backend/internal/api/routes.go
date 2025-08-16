@@ -117,6 +117,9 @@ func SetupRoutes(
 			user.POST("/copy-trades", copyTradeHandler.CreateSubscription)
 			user.GET("/copy-trades", copyTradeHandler.GetUserSubscriptions)
 			user.GET("/copy-trades/:id", copyTradeHandler.GetSubscription)
+			user.POST("/accounts", userHandler.CreateAccount)
+			user.GET("/accounts", userHandler.GetUserAccounts)
+			user.DELETE("/accounts/:id", userHandler.DeleteAccount)
 		}
 
 		admin := v1.Group("/admin").Use(middleware.AdminAuthMiddleware(cfg))

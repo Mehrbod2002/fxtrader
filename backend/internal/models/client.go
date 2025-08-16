@@ -28,6 +28,7 @@ type OrderStreamResponse struct {
 
 type TradeStream struct {
 	ID          primitive.ObjectID `json:"id"`
+	AccountID   primitive.ObjectID `json:"account_id"`
 	Symbol      string             `json:"symbol"`
 	TradeType   string             `json:"trade_type"`
 	OrderType   string             `json:"order_type"`
