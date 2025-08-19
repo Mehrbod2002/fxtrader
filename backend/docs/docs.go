@@ -116,6 +116,88 @@ const docTemplate = `{
                 }
             }
         },
+        "/accounts/transfer": {
+            "post": {
+                "description": "Transfers balance from one account to another",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Users"
+                ],
+                "summary": "Transfer balance between accounts",
+                "parameters": [
+                    {
+                        "description": "Transfer details",
+                        "name": "transfer",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.TransferRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Transfer successful",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Insufficient balance or invalid transfer",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Account not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/accounts/{id}": {
             "delete": {
                 "description": "Deletes a user account by its ID",
@@ -3219,10 +3301,14 @@ const docTemplate = `{
         "api.CreateAccountRequest": {
             "type": "object",
             "required": [
-                "account_name"
+                "account_name",
+                "account_type"
             ],
             "properties": {
                 "account_name": {
+                    "type": "string"
+                },
+                "account_type": {
                     "type": "string"
                 }
             }
@@ -3465,6 +3551,25 @@ const docTemplate = `{
                             "$ref": "#/definitions/models.TransactionStatus"
                         }
                     ]
+                }
+            }
+        },
+        "api.TransferRequest": {
+            "type": "object",
+            "required": [
+                "amount",
+                "dest_id",
+                "source_id"
+            ],
+            "properties": {
+                "amount": {
+                    "type": "number"
+                },
+                "dest_id": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "string"
                 }
             }
         },

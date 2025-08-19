@@ -49,8 +49,11 @@ definitions:
     properties:
       account_name:
         type: string
+      account_type:
+        type: string
     required:
     - account_name
+    - account_type
     type: object
   api.CreateLeaderRequest:
     properties:
@@ -208,6 +211,19 @@ definitions:
         - REJECTED
     required:
     - status
+    type: object
+  api.TransferRequest:
+    properties:
+      amount:
+        type: number
+      dest_id:
+        type: string
+      source_id:
+        type: string
+    required:
+    - amount
+    - dest_id
+    - source_id
     type: object
   api.UserActivationRequest:
     properties:
@@ -704,6 +720,60 @@ paths:
               type: string
             type: object
       summary: Delete user account
+      tags:
+      - Users
+  /accounts/transfer:
+    post:
+      consumes:
+      - application/json
+      description: Transfers balance from one account to another
+      parameters:
+      - description: Transfer details
+        in: body
+        name: transfer
+        required: true
+        schema:
+          $ref: '#/definitions/api.TransferRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Transfer successful
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Insufficient balance or invalid transfer
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Account not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Transfer balance between accounts
       tags:
       - Users
   /admin/login:
