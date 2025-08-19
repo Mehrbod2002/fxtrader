@@ -113,7 +113,21 @@ func (r *MongoUserRepository) SaveUser(user *models.UserAccount) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	user.DemoMT5Balance = 500
+	switch user.AccountType {
+	case "demo":
+		user.DemoMT5Balance = 10000.0
+		user.RealMT5Balance = 0.0
+		user.Balance = 0.0
+	case "real":
+		user.DemoMT5Balance = 0.0
+		user.RealMT5Balance = 0.0
+		user.Balance = 0.0
+	case "main":
+		user.DemoMT5Balance = 0.0
+		user.RealMT5Balance = 0.0
+		user.Balance = 0.0
+	}
+
 	_, err := r.collection.InsertOne(ctx, user)
 	return err
 }
@@ -138,7 +152,7 @@ func (r *MongoUserRepository) GetUserByTelegramID(telegramID string) (*models.Us
 	defer cancel()
 
 	var user models.UserAccount
-	err := r.collection.FindOne(ctx, bson.M{"telegram_id": telegramID}).Decode(&user)
+	err := r.collection.FindOne(ctx, bson.M{"telegram_id": telegramID, "account_type": "main"}).Decode(&user)
 	if err == mongo.ErrNoDocuments {
 		return nil, nil
 	}

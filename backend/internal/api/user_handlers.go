@@ -20,6 +20,13 @@ type LoginRequest struct {
 
 type CreateAccountRequest struct {
 	AccountName string `json:"account_name" binding:"required"`
+	AccountType string `json:"account_type" binding:"required"`
+}
+
+type TransferRequest struct {
+	SourceID string  `json:"source_id" binding:"required"`
+	DestID   string  `json:"dest_id" binding:"required"`
+	Amount   float64 `json:"amount" binding:"required,gt=0"`
 }
 
 type UserHandler struct {
@@ -68,8 +75,7 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 		CardNumber:       req.CardNumber,
 		Citizenship:      req.Citizenship,
 		NationalID:       req.NationalID,
-		AccountType:      "user",
-		AccountTypes:     []string{"REAL", "DEMO"},
+		AccountType:      "main",
 		RegistrationDate: time.Now().Format(time.RFC3339),
 	}
 
@@ -89,10 +95,6 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 			return
 		}
 		referredBy = referrer.ID
-	}
-
-	if user.Username == "" {
-		user.Username = "user_" + user.TelegramID
 	}
 
 	timestamp := time.Now().UnixNano()
@@ -151,6 +153,7 @@ func (h *UserHandler) CreateAccount(c *gin.Context) {
 
 	account := &models.UserAccount{
 		AccountName: req.AccountName,
+		AccountType: req.AccountType,
 		TelegramID:  userID.(string),
 	}
 
@@ -279,6 +282,8 @@ func (h *UserHandler) EditUser(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "User with this Telegram ID not exists"})
 		return
 	}
+
+	user.ID = existingUser.ID
 
 	if err := h.userService.EditUser(&user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to edit user"})
@@ -427,4 +432,125 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, user)
+}
+
+// @Summary Transfer balance between accounts
+// @Description Transfers balance from one account to another
+// @Tags Users
+// @Accept json
+// @Produce json
+// @Param transfer body TransferRequest true "Transfer details"
+// @Success 200 {object} map[string]string "Transfer successful"
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 403 {object} map[string]string "Insufficient balance or invalid transfer"
+// @Failure 404 {object} map[string]string "Account not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /accounts/transfer [post]
+func (h *UserHandler) TransferBalance(c *gin.Context) {
+	var req TransferRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	userStr := userID.(string)
+
+	sourceObjID, err := primitive.ObjectIDFromHex(req.SourceID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid source ID"})
+		return
+	}
+
+	destObjID, err := primitive.ObjectIDFromHex(req.DestID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid dest ID"})
+		return
+	}
+
+	if sourceObjID == destObjID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Source and dest cannot be same"})
+		return
+	}
+
+	source, err := h.userService.GetUser(req.SourceID)
+	if err != nil || source == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Source account not found"})
+		return
+	}
+
+	if source.TelegramID != userStr {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not your account"})
+		return
+	}
+
+	dest, err := h.userService.GetUser(req.DestID)
+	if err != nil || dest == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Dest account not found"})
+		return
+	}
+
+	if dest.TelegramID != userStr {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not your account"})
+		return
+	}
+
+	isSourceDemo := source.AccountType == "demo"
+	isDestDemo := dest.AccountType == "demo"
+	if isSourceDemo != isDestDemo {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot transfer between demo and real/main accounts"})
+		return
+	}
+
+	var sourceBalance *float64
+	var destBalance *float64
+	if isSourceDemo {
+		sourceBalance = &source.DemoMT5Balance
+		destBalance = &dest.DemoMT5Balance
+	} else {
+		if source.AccountType == "main" {
+			sourceBalance = &source.Balance
+		} else {
+			sourceBalance = &source.RealMT5Balance
+		}
+		if dest.AccountType == "main" {
+			destBalance = &dest.Balance
+		} else {
+			destBalance = &dest.RealMT5Balance
+		}
+	}
+
+	if *sourceBalance < req.Amount {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient balance"})
+		return
+	}
+
+	*sourceBalance -= req.Amount
+	if err := h.userService.UpdateUser(source); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update source"})
+		return
+	}
+
+	*destBalance += req.Amount
+	if err := h.userService.UpdateUser(dest); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update dest"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"source_id": req.SourceID,
+		"dest_id":   req.DestID,
+		"amount":    req.Amount,
+	}
+	if err := h.logService.LogAction(source.ID, "TransferBalance", "Transferred balance between accounts", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "Transfer successful"})
 }
