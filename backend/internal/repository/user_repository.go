@@ -26,6 +26,7 @@ type UserRepository interface {
 	GetAllReferrals(page, limit int64) ([]*models.UserAccount, int64, error)
 	GetUserAccounts(userID string) ([]*models.UserAccount, error)
 	DeleteAccount(userID string, accountID primitive.ObjectID) error
+	TransferBalance(sourceID, destID primitive.ObjectID, amount float64, sourceType, destType string) error
 }
 
 type MongoUserRepository struct {
@@ -286,4 +287,68 @@ func (r *MongoUserRepository) DeleteAccount(userID string, accountID primitive.O
 		return fmt.Errorf("account not found")
 	}
 	return nil
+}
+
+func (r *MongoUserRepository) TransferBalance(sourceID, destID primitive.ObjectID, amount float64, sourceType, destType string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	session, err := r.collection.Database().Client().StartSession()
+	if err != nil {
+		return fmt.Errorf("failed to start session: %w", err)
+	}
+	defer session.EndSession(ctx)
+
+	callback := func(sessionContext mongo.SessionContext) (interface{}, error) {
+		var source, dest models.UserAccount
+		if err := r.collection.FindOne(sessionContext, bson.M{"_id": sourceID}).Decode(&source); err != nil {
+			return nil, fmt.Errorf("source account not found: %w", err)
+		}
+		if err := r.collection.FindOne(sessionContext, bson.M{"_id": destID}).Decode(&dest); err != nil {
+			return nil, fmt.Errorf("destination account not found: %w", err)
+		}
+
+		var sourceBalance *float64
+		switch sourceType {
+		case "main":
+			sourceBalance = &source.Balance
+		case "demo":
+			sourceBalance = &source.DemoMT5Balance
+		case "real":
+			sourceBalance = &source.RealMT5Balance
+		default:
+			return nil, fmt.Errorf("invalid source account type")
+		}
+
+		var destBalance *float64
+		switch destType {
+		case "main":
+			destBalance = &dest.Balance
+		case "demo":
+			destBalance = &dest.DemoMT5Balance
+		case "real":
+			destBalance = &dest.RealMT5Balance
+		default:
+			return nil, fmt.Errorf("invalid destination account type")
+		}
+
+		if *sourceBalance < amount {
+			return nil, fmt.Errorf("insufficient balance")
+		}
+
+		*sourceBalance -= amount
+		*destBalance += amount
+
+		if _, err := r.collection.UpdateOne(sessionContext, bson.M{"_id": sourceID}, bson.M{"$set": source}); err != nil {
+			return nil, fmt.Errorf("failed to update source: %w", err)
+		}
+		if _, err := r.collection.UpdateOne(sessionContext, bson.M{"_id": destID}, bson.M{"$set": dest}); err != nil {
+			return nil, fmt.Errorf("failed to update destination: %w", err)
+		}
+
+		return nil, nil
+	}
+
+	_, err = session.WithTransaction(ctx, callback)
+	return err
 }

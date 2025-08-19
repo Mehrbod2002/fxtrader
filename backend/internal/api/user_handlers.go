@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mehrbod2002/fxtrader/internal/config"
@@ -435,12 +436,12 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 }
 
 // @Summary Transfer balance between accounts
-// @Description Transfers balance from one account to another
+// @Description Transfers balance between accounts (main, demo, or real) owned by the same user
 // @Tags Users
 // @Accept json
 // @Produce json
 // @Param transfer body TransferRequest true "Transfer details"
-// @Success 200 {object} map[string]string "Transfer successful"
+// @Success 200 {object} map[string]interface{} "Transfer successful"
 // @Failure 400 {object} map[string]string "Invalid request"
 // @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 403 {object} map[string]string "Insufficient balance or invalid transfer"
@@ -470,12 +471,12 @@ func (h *UserHandler) TransferBalance(c *gin.Context) {
 
 	destObjID, err := primitive.ObjectIDFromHex(req.DestID)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid dest ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid destination ID"})
 		return
 	}
 
 	if sourceObjID == destObjID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Source and dest cannot be same"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Source and destination cannot be the same"})
 		return
 	}
 
@@ -486,71 +487,100 @@ func (h *UserHandler) TransferBalance(c *gin.Context) {
 	}
 
 	if source.TelegramID != userStr {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not your account"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Source account does not belong to you"})
 		return
 	}
 
 	dest, err := h.userService.GetUser(req.DestID)
 	if err != nil || dest == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Dest account not found"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Destination account not found"})
 		return
 	}
 
 	if dest.TelegramID != userStr {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Not your account"})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Destination account does not belong to you"})
 		return
 	}
 
-	isSourceDemo := source.AccountType == "demo"
-	isDestDemo := dest.AccountType == "demo"
-	if isSourceDemo != isDestDemo {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot transfer between demo and real/main accounts"})
+	// Validate account types
+	if source.AccountType != "main" && source.AccountType != "demo" && source.AccountType != "real" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid source account type"})
 		return
 	}
 
-	var sourceBalance *float64
-	var destBalance *float64
-	if isSourceDemo {
-		sourceBalance = &source.DemoMT5Balance
-		destBalance = &dest.DemoMT5Balance
-	} else {
-		if source.AccountType == "main" {
-			sourceBalance = &source.Balance
-		} else {
-			sourceBalance = &source.RealMT5Balance
+	if dest.AccountType != "main" && dest.AccountType != "demo" && dest.AccountType != "real" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid destination account type"})
+		return
+	}
+
+	// Restrict transfers between demo and real accounts
+	if (source.AccountType == "demo" && dest.AccountType == "real") ||
+		(source.AccountType == "real" && dest.AccountType == "demo") {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot transfer between demo and real accounts"})
+		return
+	}
+
+	err = h.userService.TransferBalance(sourceObjID, destObjID, req.Amount, source.AccountType, dest.AccountType)
+	if err != nil {
+		switch {
+		case strings.Contains(err.Error(), "insufficient balance"):
+			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient balance in source account"})
+		case strings.Contains(err.Error(), "source account not found") || strings.Contains(err.Error(), "destination account not found"):
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		case strings.Contains(err.Error(), "invalid source account type") || strings.Contains(err.Error(), "invalid destination account type"):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Transfer failed: %v", err)})
 		}
-		if dest.AccountType == "main" {
-			destBalance = &dest.Balance
-		} else {
-			destBalance = &dest.RealMT5Balance
-		}
-	}
-
-	if *sourceBalance < req.Amount {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient balance"})
 		return
 	}
 
-	*sourceBalance -= req.Amount
-	if err := h.userService.UpdateUser(source); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update source"})
+	updatedSource, err := h.userService.GetUser(req.SourceID)
+	if err != nil || updatedSource == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated source account"})
 		return
 	}
 
-	*destBalance += req.Amount
-	if err := h.userService.UpdateUser(dest); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update dest"})
+	updatedDest, err := h.userService.GetUser(req.DestID)
+	if err != nil || updatedDest == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated destination account"})
 		return
+	}
+
+	var sourceBalance float64
+	switch updatedSource.AccountType {
+	case "main":
+		sourceBalance = updatedSource.Balance
+	case "demo":
+		sourceBalance = updatedSource.DemoMT5Balance
+	case "real":
+		sourceBalance = updatedSource.RealMT5Balance
+	}
+
+	var destBalance float64
+	switch updatedDest.AccountType {
+	case "main":
+		destBalance = updatedDest.Balance
+	case "demo":
+		destBalance = updatedDest.DemoMT5Balance
+	case "real":
+		destBalance = updatedDest.RealMT5Balance
 	}
 
 	metadata := map[string]interface{}{
-		"source_id": req.SourceID,
-		"dest_id":   req.DestID,
-		"amount":    req.Amount,
+		"source_id":   req.SourceID,
+		"dest_id":     req.DestID,
+		"amount":      req.Amount,
+		"source_type": source.AccountType,
+		"dest_type":   dest.AccountType,
 	}
 	if err := h.logService.LogAction(source.ID, "TransferBalance", "Transferred balance between accounts", c.ClientIP(), metadata); err != nil {
-		log.Printf("error: %v", err)
+		log.Printf("Failed to log transfer action: %v", err)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "Transfer successful"})
+	c.JSON(http.StatusOK, gin.H{
+		"status":         "Transfer successful",
+		"source_balance": sourceBalance,
+		"dest_balance":   destBalance,
+	})
 }

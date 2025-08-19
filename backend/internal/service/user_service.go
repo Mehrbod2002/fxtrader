@@ -24,6 +24,7 @@ type UserService interface {
 	CreateAccount(account *models.UserAccount) error
 	GetUserAccounts(userID string) ([]*models.UserAccount, error)
 	DeleteAccount(userID string, accountID primitive.ObjectID) error
+	TransferBalance(sourceID, destID primitive.ObjectID, amount float64, sourceType, destType string) error
 }
 
 type userService struct {
@@ -101,4 +102,8 @@ func (s *userService) GetUserAccounts(userID string) ([]*models.UserAccount, err
 
 func (s *userService) DeleteAccount(userID string, accountID primitive.ObjectID) error {
 	return s.userRepo.DeleteAccount(userID, accountID)
+}
+
+func (s *userService) TransferBalance(sourceID, destID primitive.ObjectID, amount float64, sourceType, destType string) error {
+	return s.userRepo.TransferBalance(sourceID, destID, amount, sourceType, destType)
 }
