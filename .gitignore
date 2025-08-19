@@ -1,5 +1,5 @@
-go.sum
 backend/cmd/server/server*
 .vscode
 backend/server
 metatrader/**/__pycache__/
+**/main
