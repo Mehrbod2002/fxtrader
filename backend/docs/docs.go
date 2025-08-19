@@ -118,7 +118,7 @@ const docTemplate = `{
         },
         "/accounts/transfer": {
             "post": {
-                "description": "Transfers balance from one account to another",
+                "description": "Transfers balance between accounts (main, demo, or real) owned by the same user",
                 "consumes": [
                     "application/json"
                 ],
@@ -145,9 +145,7 @@ const docTemplate = `{
                         "description": "Transfer successful",
                         "schema": {
                             "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "additionalProperties": true
                         }
                     },
                     "400": {

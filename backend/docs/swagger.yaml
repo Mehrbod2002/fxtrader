@@ -726,7 +726,8 @@ paths:
     post:
       consumes:
       - application/json
-      description: Transfers balance from one account to another
+      description: Transfers balance between accounts (main, demo, or real) owned
+        by the same user
       parameters:
       - description: Transfer details
         in: body
@@ -740,8 +741,7 @@ paths:
         "200":
           description: Transfer successful
           schema:
-            additionalProperties:
-              type: string
+            additionalProperties: true
             type: object
         "400":
           description: Invalid request
