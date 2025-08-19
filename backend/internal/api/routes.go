@@ -120,6 +120,7 @@ func SetupRoutes(
 			user.POST("/accounts", userHandler.CreateAccount)
 			user.GET("/accounts", userHandler.GetUserAccounts)
 			user.DELETE("/accounts/:id", userHandler.DeleteAccount)
+			user.POST("/accounts/transfer", userHandler.TransferBalance)
 		}
 
 		admin := v1.Group("/admin").Use(middleware.AdminAuthMiddleware(cfg))
