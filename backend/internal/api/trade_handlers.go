@@ -72,13 +72,19 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 		return
 	}
 
+	executionType := models.ExecutionTypeUserToUser
+	if req.OrderType == "MARKET" {
+		executionType = models.ExecutionTypePlatform
+	}
+
 	metadata := map[string]interface{}{
-		"user_id":    userID,
-		"account_id": req.AccountID,
-		"trade_id":   trade.ID.Hex(),
-		"symbol":     req.SymbolName,
-		"trade_type": req.TradeType,
-		"order_type": req.OrderType,
+		"user_id":        userID,
+		"account_id":     req.AccountID,
+		"trade_id":       trade.ID.Hex(),
+		"symbol":         req.SymbolName,
+		"trade_type":     req.TradeType,
+		"order_type":     req.OrderType,
+		"execution_type": executionType,
 	}
 	if err := h.logService.LogAction(trade.UserID, "PlaceTrade", "Trade order placed", c.ClientIP(), metadata); err != nil {
 		log.Printf("error: %v", err)
@@ -91,6 +97,7 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 		"trade_status":     trade.Status,
 		"matched_trade_id": trade.MatchedTradeID,
 		"mt5_response":     tradeResponse,
+		"execution_type":   executionType,
 	})
 }
 

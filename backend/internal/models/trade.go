@@ -27,7 +27,15 @@ type TradeHistory struct {
 	MatchedTradeID string             `bson:"matched_trade_id,omitempty"`
 	Expiration     *time.Time         `bson:"expiration,omitempty"`
 	AccountType    string             `bson:"account_type"`
+	ExecutionType  ExecutionType      `bson:"execution_type"`
 }
+
+type ExecutionType string
+
+const (
+	ExecutionTypePlatform   ExecutionType = "platform"
+	ExecutionTypeUserToUser ExecutionType = "user-to-user"
+)
 
 type TradeType string
 

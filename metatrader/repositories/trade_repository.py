@@ -97,7 +97,7 @@ class TradeRepository:
 
             if stops_level == 0:
                 print(f"Warning: No stops_level defined for {trade1.symbol}. Skipping SL/TP validation.")
-                return True  # Skip validation if stops_level is undefined or 0
+                return True
 
             if sl:
                 sl_distance = abs(entry_price - sl)
@@ -259,6 +259,21 @@ class TradeRepository:
         if not self.mt5_client.check_margin(trade.symbol, volume, trade.trade_type):
             await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Insufficient account margin")
             return False
+
+        if trade.order_type == "MARKET":
+            strategy = self.strategies.get("MARKET")
+            if strategy is None:
+                await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="No strategy for MARKET")
+                return False
+            
+            if strategy.execute(trade, self.mt5_client):
+                await self.send_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "", ws)
+                self.trade_repository.save_trade_to_redis(trade)
+                return True
+            else:
+                logger.warning(f"Market order {trade.trade_id} failed direct execution")
+                await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Market execution failed")
+                return False
 
         match_index = self.trade_repository.find_matching_trade(trade)
         if match_index >= 0:

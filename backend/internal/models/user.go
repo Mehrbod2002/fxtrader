@@ -30,5 +30,6 @@ type UserAccount struct {
 	IsCopyTradeLeader        bool               `json:"is_copy_trade_leader" bson:"is_copy_trade_leader"`
 	IsCopyPendingTradeLeader bool               `json:"is_copy_pending_trade_leader" bson:"is_copy_pending_trade_leader"`
 	ReferralCode             string             `json:"referral_code" bson:"referral_code"`
+	AccountID                primitive.ObjectID `json:"account_id" bson:"account_id"`
 	ReferredBy               primitive.ObjectID `json:"referred_by,omitempty" bson:"referred_by,omitempty"`
 }

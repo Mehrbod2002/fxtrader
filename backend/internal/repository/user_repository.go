@@ -308,6 +308,35 @@ func (r *MongoUserRepository) TransferBalance(sourceID, destID primitive.ObjectI
 			return nil, fmt.Errorf("destination account not found: %w", err)
 		}
 
+		validSourceType := false
+		for _, t := range source.AccountTypes {
+			if t == sourceType {
+				validSourceType = true
+				break
+			}
+		}
+		if !validSourceType {
+			return nil, fmt.Errorf("source account does not have type: %s", sourceType)
+		}
+
+		validDestType := false
+		for _, t := range dest.AccountTypes {
+			if t == destType {
+				validDestType = true
+				break
+			}
+		}
+		if !validDestType {
+			return nil, fmt.Errorf("destination account does not have type: %s", destType)
+		}
+
+		if source.IsCopyTradeLeader && sourceType != "main" {
+			return nil, fmt.Errorf("transfers from copy trade leader accounts are restricted")
+		}
+		if dest.IsCopyTradeLeader && destType != "main" {
+			return nil, fmt.Errorf("transfers to copy trade leader accounts are restricted")
+		}
+
 		var sourceBalance *float64
 		switch sourceType {
 		case "main":
@@ -317,7 +346,7 @@ func (r *MongoUserRepository) TransferBalance(sourceID, destID primitive.ObjectI
 		case "real":
 			sourceBalance = &source.RealMT5Balance
 		default:
-			return nil, fmt.Errorf("invalid source account type")
+			return nil, fmt.Errorf("invalid source account type: %s", sourceType)
 		}
 
 		var destBalance *float64
@@ -329,21 +358,21 @@ func (r *MongoUserRepository) TransferBalance(sourceID, destID primitive.ObjectI
 		case "real":
 			destBalance = &dest.RealMT5Balance
 		default:
-			return nil, fmt.Errorf("invalid destination account type")
+			return nil, fmt.Errorf("invalid destination account type: %s", destType)
 		}
 
 		if *sourceBalance < amount {
-			return nil, fmt.Errorf("insufficient balance")
+			return nil, fmt.Errorf("insufficient balance in source account")
 		}
 
 		*sourceBalance -= amount
 		*destBalance += amount
 
 		if _, err := r.collection.UpdateOne(sessionContext, bson.M{"_id": sourceID}, bson.M{"$set": source}); err != nil {
-			return nil, fmt.Errorf("failed to update source: %w", err)
+			return nil, fmt.Errorf("failed to update source account: %w", err)
 		}
 		if _, err := r.collection.UpdateOne(sessionContext, bson.M{"_id": destID}, bson.M{"$set": dest}); err != nil {
-			return nil, fmt.Errorf("failed to update destination: %w", err)
+			return nil, fmt.Errorf("failed to update destination account: %w", err)
 		}
 
 		return nil, nil

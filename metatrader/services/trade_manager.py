@@ -87,64 +87,8 @@ class TradeManager:
             return False
         return True
 
-    async def handle_trade_request(self, json_data: dict, ws, trade_manager) -> bool:
-        symbol = json_data.get("symbol", "")
-        if not self.mt5_client.get_symbol_info(symbol):
-            await trade_manager.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
-                                        "FAILED", "", ws, error="Invalid symbol")
-            return False
-
-        volume = json_data.get("volume", 0.0)
-        symbol_info = self.mt5_client.get_symbol_info(symbol)
-        if volume < symbol_info.volume_min or volume > symbol_info.volume_max:
-            await trade_manager.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
-                                        "FAILED", "", ws, error="Invalid volume")
-            return False
-
-        trade = trade_manager.trade_factory.create_trade(json_data)
-        if not trade_manager.validate_trade(trade):
-            await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Invalid trade parameters")
-            return False
-
-        # user_balance = await self.trade_repository.get_user_balance(trade.user_id, trade.account_type, ws) DEMO
-        user_balance = 10000
-        required_margin = (volume * symbol_info.trade_contract_size *
-                        self.mt5_client.get_symbol_tick(symbol).bid) / trade.leverage
-        if user_balance < required_margin:
-            await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Insufficient user balance")
-            return False
-
-        if not self.mt5_client.check_margin(trade.symbol, volume, trade.trade_type):
-            await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Insufficient account margin")
-            return False
-
-        match_index = self.trade_repository.find_matching_trade(trade)
-        if match_index >= 0:
-            matched_trade = self.trade_repository.pool[match_index]
-            await trade_manager.execute_matched_trades(trade, matched_trade, ws)
-
-            if trade.trade_id != "" and trade.volume > 0 and trade.status != "EXECUTED":
-                self.trade_repository.add_to_pool(trade)
-                trade_manager.save_trade_to_redis(trade)
-                await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
-
-            if matched_trade.volume <= 0:
-                self.trade_repository.remove_from_pool(matched_trade)
-                trade_manager.remove_trade_from_redis(matched_trade)
-        else:
-            self.trade_repository.add_to_pool(trade)
-            trade_manager.save_trade_to_redis(trade)
-            await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
-            if trade.order_type == "MARKET":
-                strategy = trade_manager.strategies.get(trade.order_type)
-                if strategy and strategy.execute(trade, self.mt5_client) and trade.trade_id != "":
-                    await trade_manager.send_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "", ws)
-                    self.trade_repository.remove_from_pool(trade)
-                    trade_manager.remove_trade_from_redis(trade)
-                else:
-                    logger.warning(
-                        f"Market order {trade.trade_id} failed execution, remains PENDING")
-        return True
+    async def handle_trade_request(self, json_data: dict, ws) -> bool:
+        return await self.trade_repository.handle_trade_request(json_data, ws)
 
     async def execute_matched_trades(self, trade1: PoolTrade, trade2: PoolTrade, ws):
         match_volume = min(trade1.volume, trade2.volume)
@@ -427,7 +371,7 @@ class TradeManager:
                         close_reason = "CANCELED"
                         break
             if not success:
-                close_reason = "INVALID_TICKET" if not close_reason else close_reason
+                close_reason = "INVALID_TICKET" if close_reason == "" else close_reason
 
             if not success:
                 close_reason = "INVALID_TICKET" if close_reason == "" else close_reason

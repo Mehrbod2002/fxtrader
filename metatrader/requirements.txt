@@ -4,3 +4,4 @@ pydantic
 requests
 redis
 async_timeout
+heapq

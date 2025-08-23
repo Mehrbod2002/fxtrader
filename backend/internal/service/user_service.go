@@ -59,6 +59,12 @@ func (s *userService) SignupUser(user *models.UserAccount) error {
 }
 
 func (s *userService) EditUser(user *models.UserAccount) error {
+	existing, err := s.userRepo.GetUserByID(user.ID)
+	if err != nil {
+		return err
+	}
+
+	user.AccountName = existing.AccountName
 	return s.userRepo.EditUser(user)
 }
 
@@ -91,7 +97,21 @@ func (s *userService) CreateAccount(account *models.UserAccount) error {
 		account.ID = primitive.NewObjectID()
 		account.RegistrationDate = time.Now().Format(time.RFC3339)
 		account.IsActive = false
+		account.ReferralCode = uuid.New().String()[:8]
+
+		if !s.contains(account.AccountTypes, account.AccountType) {
+			account.AccountTypes = append(account.AccountTypes, account.AccountType)
+		}
 		return s.userRepo.SaveUser(account)
+	}
+
+	existing, err := s.userRepo.GetUserByID(account.ID)
+	if err != nil {
+		return err
+	}
+	if !s.contains(existing.AccountTypes, account.AccountType) {
+		existing.AccountTypes = append(existing.AccountTypes, account.AccountType)
+		account.AccountTypes = existing.AccountTypes
 	}
 	return s.userRepo.UpdateUser(account)
 }
@@ -106,4 +126,13 @@ func (s *userService) DeleteAccount(userID string, accountID primitive.ObjectID)
 
 func (s *userService) TransferBalance(sourceID, destID primitive.ObjectID, amount float64, sourceType, destType string) error {
 	return s.userRepo.TransferBalance(sourceID, destID, amount, sourceType, destType)
+}
+
+func (s *userService) contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

@@ -77,11 +77,16 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 		Citizenship:      req.Citizenship,
 		NationalID:       req.NationalID,
 		AccountType:      "main",
+		AccountTypes:     []string{"main"},
+		AccountID:        primitive.NewObjectID(),
+		AccountName:      req.Username,
 		RegistrationDate: time.Now().Format(time.RFC3339),
+		IsActive:         false,
 	}
 
 	if user.Username == "" {
 		user.Username = "user_" + user.TelegramID
+		user.AccountName = user.Username
 	}
 
 	var referredBy primitive.ObjectID
@@ -153,6 +158,7 @@ func (h *UserHandler) CreateAccount(c *gin.Context) {
 	}
 
 	account := &models.UserAccount{
+		ID:          primitive.NewObjectID(),
 		AccountName: req.AccountName,
 		AccountType: req.AccountType,
 		TelegramID:  userID.(string),
