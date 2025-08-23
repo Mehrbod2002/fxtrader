@@ -50,7 +50,7 @@ func (h *LogHandler) GetAllLogs(c *gin.Context) {
 }
 
 // @Summary Get logs by user ID
-// @Description Retrieves a paginated list of logs associated with a specific user ID (admin only)
+// @Description Retrieves a paginated list of logs associated
 // @Tags Logs
 // @Produce json
 // @Security BasicAuth
