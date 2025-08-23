@@ -65,30 +65,33 @@ func main() {
 	logService := service.NewLogService(logRepo)
 	userService := service.NewUserService(userRepo)
 	accountService := service.NewAccountService(accountRepo)
-	transferService := service.NewTransferService(userRepo)
+	transferService := service.NewTransferService(userRepo, accountRepo)
 	symbolService := service.NewSymbolService(symbolRepo)
 	ruleService := service.NewRuleService(ruleRepo)
 	transactionService := service.NewTransactionService(transactionRepo, logService)
 	alertService := service.NewAlertService(alertRepo, symbolRepo, logService)
-	copyTradeService := service.NewCopyTradeService(copyTradeRepo, nil, userService, logService)
-	// telegramService, err := service.NewTelegramService(cfg.BotToken, userService, logService)
-	// if err != nil {
-	// 	log.Fatalf("Failed to initialize telegram service: %v", err)
-	// }
 	socketServer, err := socket.NewWebSocketServer(cfg.ListenPort)
 	if err != nil {
 		log.Fatalf("Failed to initialize WebSocket server: %v", err)
 	}
 
-	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, userRepo, logService, hub, socketServer, copyTradeService)
+	tradeService, err := service.NewTradeService(tradeRepo, symbolRepo, userRepo, accountRepo, logService, hub, socketServer, nil)
 	if err != nil {
 		log.Fatalf("Failed to initialize trade service: %v", err)
 	}
+
+	copyTradeService := service.NewCopyTradeService(copyTradeRepo, tradeService, userService, accountService, logService)
+
+	copyTradeService.SetTradeService(tradeService)
+
+	// telegramService, err := service.NewTelegramService(cfg.BotToken, userService, logService)
+	// if err != nil {
+	// 	log.Fatalf("Failed to initialize telegram service: %v", err)
+	// }
+
 	priceService := service.NewPriceService(priceRepo, hub, alertService)
 	leaderRequestService := service.NewLeaderRequestService(leaderRequestRepo, userService, logService)
 	wsHandler := ws.NewWebSocketHandler(hub, tradeService, userRepo)
-
-	copyTradeService.SetTradeService(tradeService)
 
 	if err := socketServer.Start(tradeService); err != nil {
 		log.Fatalf("Failed to start WebSocket server: %v", err)
@@ -108,7 +111,7 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 
-	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, hub, leaderRequestService, accountService, transferService)
+	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, hub, leaderRequestService, accountService, transferService, accountRepo)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
 	log.Printf("Starting server on http://%s", addr)

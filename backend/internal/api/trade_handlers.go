@@ -28,6 +28,60 @@ func NewTradeHandler(tradeService interfaces.TradeService, logService service.Lo
 	}
 }
 
+// @Summary Register a wallet for trading
+// @Description Allows an authenticated user to register a wallet for a specific account
+// @Tags Trades
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param wallet body WalletRequest true "Wallet details"
+// @Success 200 {object} map[string]string "Wallet registered"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 403 {object} map[string]string "Invalid account"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /wallets/register [post]
+func (h *TradeHandler) RegisterWallet(c *gin.Context) {
+	var req WalletRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	userID := c.GetString("user_id")
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	_, err = primitive.ObjectIDFromHex(req.AccountID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account ID"})
+		return
+	}
+
+	if err := h.tradeService.RegisterWallet(userID, req.AccountID, req.WalletID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"user_id":    userID,
+		"account_id": req.AccountID,
+		"wallet_id":  req.WalletID,
+	}
+	if err := h.logService.LogAction(userObjID, "RegisterWallet", "Wallet registered for trading", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "Wallet registered",
+		"account_id": req.AccountID,
+		"wallet_id":  req.WalletID,
+	})
+}
+
 // @Summary Place a new trade
 // @Description Allows an authenticated user to place a trade order on a specific account
 // @Tags Trades
@@ -86,7 +140,8 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 		"order_type":     req.OrderType,
 		"execution_type": executionType,
 	}
-	if err := h.logService.LogAction(trade.UserID, "PlaceTrade", "Trade order placed", c.ClientIP(), metadata); err != nil {
+	userObjID, _ := primitive.ObjectIDFromHex(userID)
+	if err := h.logService.LogAction(userObjID, "PlaceTrade", "Trade order placed", c.ClientIP(), metadata); err != nil {
 		log.Printf("error: %v", err)
 	}
 
@@ -343,6 +398,7 @@ func (h *TradeHandler) GetAllTrades(c *gin.Context) {
 // @Tags Trades
 // @Accept json
 // @Produce json
+// @Security BearerAuth
 // @Param id path string true "Trade ID"
 // @Param request body ModifyTradeRequest true "Modify trade request"
 // @Success 200 {object} interfaces.TradeResponse
@@ -350,7 +406,6 @@ func (h *TradeHandler) GetAllTrades(c *gin.Context) {
 // @Failure 401 {object} map[string]string
 // @Failure 500 {object} map[string]string
 // @Failure 408 {object} map[string]string
-// @Security Bearer
 // @Router /trades/{id}/modify [put]
 func (h *TradeHandler) ModifyTrade(c *gin.Context) {
 	tradeID := c.Param("id")
@@ -373,6 +428,11 @@ func (h *TradeHandler) ModifyTrade(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+type WalletRequest struct {
+	AccountID string `json:"account_id" binding:"required"`
+	WalletID  string `json:"wallet_id" binding:"required"`
 }
 
 type ModifyTradeRequest struct {

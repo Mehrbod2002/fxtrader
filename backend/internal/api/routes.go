@@ -36,6 +36,7 @@ func SetupRoutes(
 	leaderRequestService service.LeaderRequestService,
 	accountService service.AccountService,
 	transferService service.TransferService,
+	accountRepository repository.AccountRepository,
 ) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "healthy"})
@@ -50,7 +51,7 @@ func SetupRoutes(
 	}))
 
 	priceHandler := NewPriceHandler(priceService, logService)
-	userHandler := NewUserHandler(userService, accountService, transferService, logService, cfg)
+	userHandler := NewUserHandler(userService, accountService, transferService, logService, accountRepository, cfg)
 	symbolHandler := NewSymbolHandler(symbolService, logService)
 	logHandler := NewLogHandler(logService)
 	overviewHandler := NewOverviewHandler(userService, tradeService, transactionService, symbolService, logService)

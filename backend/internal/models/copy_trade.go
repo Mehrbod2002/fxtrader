@@ -17,6 +17,7 @@ type CopyTradeSubscription struct {
 	ID                 primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	FollowerID         string             `json:"follower_id" bson:"follower_id"`
 	LeaderID           string             `json:"leader_id" bson:"leader_id"`
+	AccountType        string             `json:"account_type" bson:"account_type"`
 	FollowerIDTelegram string             `json:"follower_id_telegram" bson:"follower_id_telegram"`
 	LeaderIDTelegram   string             `json:"leader_id_telegram" bson:"leader_id_telegram"`
 	AllocatedAmount    float64            `json:"allocated_amount" bson:"allocated_amount"`

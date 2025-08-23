@@ -21,9 +21,10 @@ type TradeService interface {
 	HandleTradeRequest(request map[string]interface{}) error
 	HandleBalanceRequest(request map[string]interface{}) error
 	HandleBalanceResponse(request BalanceResponse) error
-	RequestBalance(userID, accountType string) (float64, error)
+	RequestBalance(userID, accountID, accountType string) (float64, error)
 	RegisterMT5Connection(conn *websocket.Conn)
 	ModifyTrade(ctx context.Context, userID, tradeID, accountType, accountID string, entryPrice, volume float64) (TradeResponse, error)
+	RegisterWallet(userID, accountID, walletID string) error // New method for wallet registration
 }
 
 type TradeResponse struct {
@@ -33,6 +34,7 @@ type TradeResponse struct {
 	Timestamp      float64 `json:"timestamp"`
 	MatchedVolume  float64 `json:"matched_volume"`
 	AccountType    string  `json:"account_type"`
+	AccountID      string  `json:"account_id"`
 	Status         string  `json:"status"`
 	ClosePrice     float64 `json:"close_price"`
 	CloseReason    string  `json:"close_reason"`
@@ -41,6 +43,7 @@ type TradeResponse struct {
 type BalanceResponse struct {
 	Type        string  `json:"type"`
 	UserID      string  `json:"user_id"`
+	AccountID   string  `json:"account_id"`
 	AccountType string  `json:"account_type"`
 	Balance     float64 `json:"balance"`
 	Error       string  `json:"error,omitempty"`

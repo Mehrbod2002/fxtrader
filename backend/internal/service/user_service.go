@@ -9,7 +9,6 @@ import (
 	"github.com/mehrbod2002/fxtrader/internal/models"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 )
@@ -35,7 +34,7 @@ type AccountService interface {
 }
 
 type TransferService interface {
-	TransferBalance(sourceID, destID string, amount float64, sourceType, destType string) error
+	TransferBalance(userID primitive.ObjectID, sourceID, destID string, amount float64, sourceType, destType string) error
 }
 
 type userService struct {
@@ -47,7 +46,8 @@ type accountService struct {
 }
 
 type transferService struct {
-	userRepo repository.UserRepository
+	userRepo    repository.UserRepository
+	accountRepo repository.AccountRepository
 }
 
 func NewUserService(userRepo repository.UserRepository) UserService {
@@ -58,8 +58,8 @@ func NewAccountService(accountRepo repository.AccountRepository) AccountService 
 	return &accountService{accountRepo: accountRepo}
 }
 
-func NewTransferService(userRepo repository.UserRepository) TransferService {
-	return &transferService{userRepo: userRepo}
+func NewTransferService(userRepo repository.UserRepository, accountRepo repository.AccountRepository) TransferService {
+	return &transferService{userRepo: userRepo, accountRepo: accountRepo}
 }
 
 func (s *userService) GetUserByReferralCode(code string) (*models.User, error) {
@@ -81,8 +81,6 @@ func (s *userService) SignupUser(user *models.User) error {
 		user.IsActive = false
 		user.ReferralCode = uuid.New().String()[:8]
 		user.Balance = 0.0
-		user.DemoMT5Balance = 0.0
-		user.RealMT5Balance = 0.0
 		user.Bonus = 0.0
 	}
 	return s.userRepo.SaveUser(user)
@@ -147,7 +145,11 @@ func (s *accountService) DeleteAccount(accountID, userID primitive.ObjectID) err
 	return s.accountRepo.DeleteAccount(accountID, userID)
 }
 
-func (s *transferService) TransferBalance(sourceID, destID string, amount float64, sourceType, destType string) error {
+func (s *transferService) TransferBalance(userID primitive.ObjectID, sourceID, destID string, amount float64, sourceType, destType string) error {
+	if amount <= 0 {
+		return fmt.Errorf("amount must be positive")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -158,55 +160,58 @@ func (s *transferService) TransferBalance(sourceID, destID string, amount float6
 	defer session.EndSession(ctx)
 
 	callback := func(sessionContext mongo.SessionContext) (interface{}, error) {
-		if sourceType != "main" || destType != "main" {
-			return nil, fmt.Errorf("transfers are only supported for main account")
+		var sourceUser *models.User
+		var sourceAccount *models.Account
+		var sourceBalance *float64
+
+		if sourceType == "main" {
+			sourceUser, err = s.userRepo.GetUserByID(userID)
+			if err != nil || sourceUser == nil {
+				return nil, fmt.Errorf("source user not found")
+			}
+			sourceBalance = &sourceUser.Balance
+		} else {
+			sourceAccount, err = s.accountRepo.GetAccountByName(sourceID)
+			if err != nil || sourceAccount == nil {
+				return nil, fmt.Errorf("source account not found")
+			}
+			if sourceAccount.AccountType != sourceType {
+				return nil, fmt.Errorf("source account type mismatch: expected %s, got %s", sourceType, sourceAccount.AccountType)
+			}
+			sourceBalance = &sourceAccount.Balance
+			sourceUser, err = s.userRepo.GetUserByID(sourceAccount.UserID)
+			if err != nil || sourceUser == nil {
+				return nil, fmt.Errorf("source user not found")
+			}
 		}
 
-		sourceID, err := primitive.ObjectIDFromHex(sourceID)
-		if err != nil {
-			return nil, fmt.Errorf("source user not found")
-		}
+		var destUser *models.User
+		var destAccount *models.Account
+		var destBalance *float64
 
-		sourceUser, err := s.userRepo.GetUserByID(sourceID)
-		if err != nil || sourceUser == nil {
-			return nil, fmt.Errorf("source user not found")
-		}
-
-		destID, err := primitive.ObjectIDFromHex(destID)
-		if err != nil {
-			return nil, fmt.Errorf("destination user not found")
-		}
-
-		destUser, err := s.userRepo.GetUserByID(destID)
-		if err != nil || destUser == nil {
-			return nil, fmt.Errorf("destination user not found")
+		if destType == "main" {
+			destUser, err = s.userRepo.GetUserByID(userID)
+			if err != nil || destUser == nil {
+				return nil, fmt.Errorf("destination user not found")
+			}
+			destBalance = &destUser.Balance
+		} else {
+			destAccount, err = s.accountRepo.GetAccountByName(destID)
+			if err != nil || destAccount == nil {
+				return nil, fmt.Errorf("destination account not found")
+			}
+			if destAccount.AccountType != destType {
+				return nil, fmt.Errorf("destination account type mismatch: expected %s, got %s", destType, destAccount.AccountType)
+			}
+			destBalance = &destAccount.Balance
+			destUser, err = s.userRepo.GetUserByID(destAccount.UserID)
+			if err != nil || destUser == nil {
+				return nil, fmt.Errorf("destination user not found")
+			}
 		}
 
 		if sourceUser.ID != destUser.ID {
-			return nil, fmt.Errorf("source and destination must be the same user for main account transfers")
-		}
-
-		var sourceBalance, destBalance *float64
-		switch sourceType {
-		case "main":
-			sourceBalance = &sourceUser.Balance
-		case "demo":
-			sourceBalance = &sourceUser.DemoMT5Balance
-		case "real":
-			sourceBalance = &sourceUser.RealMT5Balance
-		default:
-			return nil, fmt.Errorf("invalid source account type: %s", sourceType)
-		}
-
-		switch destType {
-		case "main":
-			destBalance = &destUser.Balance
-		case "demo":
-			destBalance = &destUser.DemoMT5Balance
-		case "real":
-			destBalance = &destUser.RealMT5Balance
-		default:
-			return nil, fmt.Errorf("invalid destination account type: %s", destType)
+			return nil, fmt.Errorf("transfers must be within the same user")
 		}
 
 		if (sourceType == "demo" && destType == "real") || (sourceType == "real" && destType == "demo") {
@@ -220,8 +225,24 @@ func (s *transferService) TransferBalance(sourceID, destID string, amount float6
 		*sourceBalance -= amount
 		*destBalance += amount
 
-		if _, err := s.userRepo.Collection().UpdateOne(sessionContext, bson.M{"_id": sourceUser.ID}, bson.M{"$set": sourceUser}); err != nil {
-			return nil, fmt.Errorf("failed to update source user: %w", err)
+		if sourceType == "main" {
+			if err := s.userRepo.UpdateUser(sourceUser); err != nil {
+				return nil, fmt.Errorf("failed to update source user: %w", err)
+			}
+		} else {
+			if err := s.accountRepo.UpdateAccount(sourceAccount); err != nil {
+				return nil, fmt.Errorf("failed to update source account: %w", err)
+			}
+		}
+
+		if destType == "main" {
+			if err := s.userRepo.UpdateUser(destUser); err != nil {
+				return nil, fmt.Errorf("failed to update destination user: %w", err)
+			}
+		} else {
+			if err := s.accountRepo.UpdateAccount(destAccount); err != nil {
+				return nil, fmt.Errorf("failed to update destination account: %w", err)
+			}
 		}
 
 		return nil, nil

@@ -28,6 +28,7 @@ type tradeService struct {
 	tradeRepo           repository.TradeRepository
 	symbolRepo          repository.SymbolRepository
 	userRepo            repository.UserRepository
+	accountRepo         repository.AccountRepository
 	logService          LogService
 	mt5Conn             *websocket.Conn
 	mt5ConnMu           sync.Mutex
@@ -43,11 +44,21 @@ type tradeService struct {
 	ordersResponseMu    sync.Mutex
 }
 
-func NewTradeService(tradeRepo repository.TradeRepository, symbolRepo repository.SymbolRepository, userRepo repository.UserRepository, logService LogService, hub *ws.Hub, socketServer *socket.WebSocketServer, copyTradeService CopyTradeService) (interfaces.TradeService, error) {
+func NewTradeService(
+	tradeRepo repository.TradeRepository,
+	symbolRepo repository.SymbolRepository,
+	userRepo repository.UserRepository,
+	accountRepo repository.AccountRepository,
+	logService LogService,
+	hub *ws.Hub,
+	socketServer *socket.WebSocketServer,
+	copyTradeService CopyTradeService,
+) (interfaces.TradeService, error) {
 	return &tradeService{
 		tradeRepo:           tradeRepo,
 		symbolRepo:          symbolRepo,
 		userRepo:            userRepo,
+		accountRepo:         accountRepo,
 		logService:          logService,
 		responseChan:        make(chan interface{}, 100),
 		balanceChan:         make(chan interfaces.BalanceResponse, 100),
@@ -64,6 +75,42 @@ func (s *tradeService) RegisterMT5Connection(conn *websocket.Conn) {
 	s.mt5ConnMu.Lock()
 	s.mt5Conn = conn
 	s.mt5ConnMu.Unlock()
+}
+
+func (s *tradeService) RegisterWallet(userID, accountID, walletID string) error {
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return errors.New("invalid user ID")
+	}
+	accountObjID, err := primitive.ObjectIDFromHex(accountID)
+	if err != nil {
+		return errors.New("invalid account ID")
+	}
+
+	user, err := s.userRepo.GetUserByID(userObjID)
+	if err != nil || user == nil {
+		return errors.New("user not found")
+	}
+
+	account, err := s.accountRepo.GetAccountByID(accountObjID)
+	if err != nil || account == nil {
+		return errors.New("account not found")
+	}
+	if account.UserID != userObjID {
+		return errors.New("account does not belong to user")
+	}
+
+	// Validate wallet ID (example: ensure it's not empty and follows a specific format)
+	if walletID == "" || len(walletID) < 8 {
+		return errors.New("invalid wallet ID")
+	}
+
+	account.WalletID = walletID
+	if err := s.accountRepo.UpdateAccount(account); err != nil {
+		return fmt.Errorf("failed to update account with wallet ID: %v", err)
+	}
+
+	return nil
 }
 
 func (s *tradeService) sendToMT5(msg interface{}) error {
@@ -112,16 +159,18 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 		return nil, interfaces.TradeResponse{}, errors.New("user not found")
 	}
 
-	account, err := s.userRepo.GetUserByID(accountObjID)
+	account, err := s.accountRepo.GetAccountByID(accountObjID)
 	if err != nil {
 		return nil, interfaces.TradeResponse{}, errors.New("failed to fetch account")
 	}
-	if account == nil || account.TelegramID != userID {
+	if account == nil || account.UserID != userObjID {
 		return nil, interfaces.TradeResponse{}, errors.New("account not found or does not belong to user")
 	}
-
-	if !slices.Contains(user.AccountTypes, accountType) {
-		return nil, interfaces.TradeResponse{}, fmt.Errorf("user does not have %s account", accountType)
+	if account.AccountType != accountType {
+		return nil, interfaces.TradeResponse{}, fmt.Errorf("account type mismatch: expected %s, got %s", account.AccountType, accountType)
+	}
+	if account.WalletID == "" {
+		return nil, interfaces.TradeResponse{}, errors.New("no wallet registered for this account")
 	}
 
 	symbols, err := s.symbolRepo.GetAllSymbols()
@@ -141,8 +190,7 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 	}
 
 	requiredMargin := volume * entryPrice / float64(leverage)
-	if (accountType == "DEMO" && user.DemoMT5Balance < requiredMargin+symbolObj.CommissionFee) ||
-		(accountType == "REAL" && user.RealMT5Balance < requiredMargin+symbolObj.CommissionFee) {
+	if account.Balance < requiredMargin+symbolObj.CommissionFee {
 		return nil, interfaces.TradeResponse{}, errors.New("insufficient balance")
 	}
 
@@ -179,13 +227,9 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 		return nil, interfaces.TradeResponse{}, errors.New("expiration time must be in the future")
 	}
 
-	if accountType == "DEMO" {
-		user.DemoMT5Balance -= requiredMargin + symbolObj.CommissionFee
-	} else {
-		user.RealMT5Balance -= requiredMargin + symbolObj.CommissionFee
-	}
-	if err := s.userRepo.UpdateUser(user); err != nil {
-		return nil, interfaces.TradeResponse{}, fmt.Errorf("failed to update user balance: %v", err)
+	account.Balance -= requiredMargin + symbolObj.CommissionFee
+	if err := s.accountRepo.UpdateAccount(account); err != nil {
+		return nil, interfaces.TradeResponse{}, fmt.Errorf("failed to update account balance: %v", err)
 	}
 
 	trade := &models.TradeHistory{
@@ -212,6 +256,7 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 		"user_id":      trade.UserID.Hex(),
 		"account_id":   trade.AccountID.Hex(),
 		"account_type": accountType,
+		"wallet_id":    account.WalletID, // Include wallet ID
 		"symbol":       trade.Symbol,
 		"trade_type":   trade.TradeType,
 		"order_type":   trade.OrderType,
@@ -240,23 +285,15 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 	}()
 
 	if err := s.sendToMT5(tradeRequest); err != nil {
-		if accountType == "DEMO" {
-			user.DemoMT5Balance += requiredMargin
-		} else {
-			user.RealMT5Balance += requiredMargin
-		}
-		s.userRepo.UpdateUser(user)
+		account.Balance += requiredMargin + symbolObj.CommissionFee
+		s.accountRepo.UpdateAccount(account)
 		return nil, interfaces.TradeResponse{}, err
 	}
 
 	err = s.tradeRepo.SaveTrade(trade)
 	if err != nil {
-		if accountType == "DEMO" {
-			user.DemoMT5Balance += requiredMargin
-		} else {
-			user.RealMT5Balance += requiredMargin
-		}
-		s.userRepo.UpdateUser(user)
+		account.Balance += requiredMargin + symbolObj.CommissionFee
+		s.accountRepo.UpdateAccount(account)
 		return nil, interfaces.TradeResponse{}, err
 	}
 
@@ -265,12 +302,8 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 	case response := <-responseChan:
 		tradeResponse = response
 		if tradeResponse.TradeID != trade.ID.Hex() {
-			if accountType == "DEMO" {
-				user.DemoMT5Balance += requiredMargin
-			} else {
-				user.RealMT5Balance += requiredMargin
-			}
-			s.userRepo.UpdateUser(user)
+			account.Balance += requiredMargin + symbolObj.CommissionFee
+			s.accountRepo.UpdateAccount(account)
 			return nil, interfaces.TradeResponse{}, errors.New("received response for wrong trade ID")
 		}
 		trade.Status = tradeResponse.Status
@@ -285,22 +318,14 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 			*trade.CloseTime = time.Now()
 			trade.CloseReason = tradeResponse.Status
 			_ = s.tradeRepo.SaveTrade(trade)
-			if accountType == "DEMO" {
-				user.DemoMT5Balance += requiredMargin
-			} else {
-				user.RealMT5Balance += requiredMargin
-			}
-			s.userRepo.UpdateUser(user)
+			account.Balance += requiredMargin + symbolObj.CommissionFee
+			s.accountRepo.UpdateAccount(account)
 			return nil, interfaces.TradeResponse{}, fmt.Errorf("trade failed with status: %s", tradeResponse.Status)
 		}
 		err = s.tradeRepo.SaveTrade(trade)
 		if err != nil {
-			if accountType == "DEMO" {
-				user.DemoMT5Balance += requiredMargin
-			} else {
-				user.RealMT5Balance += requiredMargin
-			}
-			s.userRepo.UpdateUser(user)
+			account.Balance += requiredMargin + symbolObj.CommissionFee
+			s.accountRepo.UpdateAccount(account)
 			return nil, interfaces.TradeResponse{}, err
 		}
 	case <-time.After(30 * time.Second):
@@ -309,12 +334,8 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 		*trade.CloseTime = time.Now()
 		trade.CloseReason = "TIMEOUT"
 		_ = s.tradeRepo.SaveTrade(trade)
-		if accountType == "DEMO" {
-			user.DemoMT5Balance += requiredMargin
-		} else {
-			user.RealMT5Balance += requiredMargin
-		}
-		s.userRepo.UpdateUser(user)
+		account.Balance += requiredMargin + symbolObj.CommissionFee
+		s.accountRepo.UpdateAccount(account)
 		return nil, interfaces.TradeResponse{}, errors.New("timeout waiting for MT5 trade response")
 	}
 
@@ -332,6 +353,11 @@ func (s *tradeService) HandleBalanceResponse(response interfaces.BalanceResponse
 	if err != nil {
 		return errors.New("invalid user ID")
 	}
+	accountObjID, err := primitive.ObjectIDFromHex(response.AccountID)
+	if err != nil {
+		return errors.New("invalid account ID")
+	}
+
 	user, err := s.userRepo.GetUserByID(userObjID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch user: %v", err)
@@ -339,8 +365,21 @@ func (s *tradeService) HandleBalanceResponse(response interfaces.BalanceResponse
 	if user == nil {
 		return errors.New("user not found")
 	}
-	if !slices.Contains(user.AccountTypes, response.AccountType) {
-		return fmt.Errorf("user does not have %s account", response.AccountType)
+
+	account, err := s.accountRepo.GetAccountByID(accountObjID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch account: %v", err)
+	}
+	if account == nil || account.UserID != userObjID {
+		return errors.New("account not found or does not belong to user")
+	}
+	if account.AccountType != response.AccountType {
+		return fmt.Errorf("account type mismatch: expected %s, got %s", account.AccountType, response.AccountType)
+	}
+
+	account.Balance = response.Balance
+	if err := s.accountRepo.UpdateAccount(account); err != nil {
+		return fmt.Errorf("failed to update account balance: %v", err)
 	}
 
 	balanceData := &models.BalanceData{
@@ -368,6 +407,11 @@ func (s *tradeService) HandleTradeResponse(response interfaces.TradeResponse) er
 		return errors.New("trade not found")
 	}
 
+	account, err := s.accountRepo.GetAccountByID(trade.AccountID)
+	if err != nil || account == nil {
+		return errors.New("account not found")
+	}
+
 	if response.MatchedVolume > 0 {
 		trade.Volume -= response.MatchedVolume
 	}
@@ -382,16 +426,9 @@ func (s *tradeService) HandleTradeResponse(response interfaces.TradeResponse) er
 		trade.CloseTime = &time.Time{}
 		*trade.CloseTime = time.Now()
 		trade.CloseReason = response.Status
-		user, err := s.userRepo.GetUserByID(trade.UserID)
-		if err == nil && user != nil {
-			margin := trade.Volume * trade.EntryPrice / float64(trade.Leverage)
-			if trade.AccountType == "DEMO" {
-				user.DemoMT5Balance += margin
-			} else {
-				user.RealMT5Balance += margin
-			}
-			s.userRepo.UpdateUser(user)
-		}
+		margin := trade.Volume * trade.EntryPrice / float64(trade.Leverage)
+		account.Balance += margin
+		s.accountRepo.UpdateAccount(account)
 	}
 	err = s.tradeRepo.SaveTrade(trade)
 	if err != nil {
@@ -472,6 +509,11 @@ func (s *tradeService) HandleTradeRequest(request map[string]interface{}) error 
 		return errors.New("missing or invalid account_type")
 	}
 
+	walletID, ok := request["wallet_id"].(string)
+	if !ok || walletID == "" {
+		return errors.New("missing or invalid wallet_id")
+	}
+
 	orderType, ok := request["order_type"].(string)
 	if !ok {
 		return errors.New("missing or invalid order_type")
@@ -510,25 +552,50 @@ func (s *tradeService) HandleTradeRequest(request map[string]interface{}) error 
 
 	tradeType := models.TradeType(tradeTypeStr)
 
-	_, _, err := s.PlaceTrade(userID, accountID, symbol, accountTypeStr, tradeType, orderType, int(leverage), volume, entryPrice, stopLoss, takeProfit, expiration)
+	// Validate wallet
+	accountObjID, err := primitive.ObjectIDFromHex(accountID)
+	if err != nil {
+		return errors.New("invalid account ID")
+	}
+	account, err := s.accountRepo.GetAccountByID(accountObjID)
+	if err != nil || account == nil {
+		return errors.New("account not found")
+	}
+	if account.WalletID != walletID {
+		return errors.New("wallet ID mismatch")
+	}
+
+	_, _, err = s.PlaceTrade(userID, accountID, symbol, accountTypeStr, tradeType, orderType, int(leverage), volume, entryPrice, stopLoss, takeProfit, expiration)
 	return err
 }
 
 func (s *tradeService) HandleBalanceRequest(request map[string]interface{}) error {
-	userID, okUser := request["user_id"].(string)
-	accountType, ok := request["account_type"].(string)
-	if !ok || !okUser {
-		return errors.New("missing or invalid user_id or account_type")
+	userID, ok := request["user_id"].(string)
+	if !ok {
+		return errors.New("missing or invalid user_id")
 	}
-	_, err := s.RequestBalance(userID, accountType)
+	accountID, ok := request["account_id"].(string)
+	if !ok {
+		return errors.New("missing or invalid account_id")
+	}
+	accountType, ok := request["account_type"].(string)
+	if !ok {
+		return errors.New("missing or invalid account_type")
+	}
+	_, err := s.RequestBalance(userID, accountID, accountType)
 	return err
 }
 
-func (s *tradeService) RequestBalance(userID, accountType string) (float64, error) {
+func (s *tradeService) RequestBalance(userID, accountID, accountType string) (float64, error) {
 	userObjID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
 		return 0, errors.New("invalid user ID")
 	}
+	accountObjID, err := primitive.ObjectIDFromHex(accountID)
+	if err != nil {
+		return 0, errors.New("invalid account ID")
+	}
+
 	user, err := s.userRepo.GetUserByID(userObjID)
 	if err != nil {
 		return 0, errors.New("failed to fetch user")
@@ -537,11 +604,18 @@ func (s *tradeService) RequestBalance(userID, accountType string) (float64, erro
 		return 0, errors.New("user not found")
 	}
 
-	balance := user.DemoMT5Balance
-	if accountType == "REAL" {
-		balance = user.RealMT5Balance
+	account, err := s.accountRepo.GetAccountByID(accountObjID)
+	if err != nil {
+		return 0, errors.New("failed to fetch account")
 	}
-	return balance, nil
+	if account == nil || account.UserID != userObjID {
+		return 0, errors.New("account not found or does not belong to user")
+	}
+	if account.AccountType != accountType {
+		return 0, fmt.Errorf("account type mismatch: expected %s, got %s", account.AccountType, accountType)
+	}
+
+	return account.Balance, nil
 }
 
 func (s *tradeService) CloseTrade(tradeID, userID, accountType, accountID string) (interfaces.TradeResponse, error) {
@@ -571,12 +645,21 @@ func (s *tradeService) CloseTrade(tradeID, userID, accountType, accountID string
 		return interfaces.TradeResponse{}, fmt.Errorf("trade is not associated with %s account", accountType)
 	}
 
+	account, err := s.accountRepo.GetAccountByID(accountObjID)
+	if err != nil || account == nil {
+		return interfaces.TradeResponse{}, errors.New("account not found")
+	}
+	if account.WalletID == "" {
+		return interfaces.TradeResponse{}, errors.New("no wallet registered for this account")
+	}
+
 	closeRequest := map[string]interface{}{
 		"type":         "close_trade_request",
 		"trade_id":     tradeID,
 		"user_id":      userID,
 		"account_id":   accountID,
 		"account_type": accountType,
+		"wallet_id":    account.WalletID, // Include wallet ID
 		"timestamp":    time.Now().Unix(),
 	}
 
@@ -610,6 +693,15 @@ func (s *tradeService) CloseTrade(tradeID, userID, accountType, accountID string
 func (s *tradeService) StreamTrades(userID, accountType string) (chan models.OrderStreamResponse, error) {
 	if accountType != "DEMO" && accountType != "REAL" {
 		return nil, errors.New("invalid account type")
+	}
+
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return nil, errors.New("invalid user ID")
+	}
+	user, err := s.userRepo.GetUserByID(userObjID)
+	if err != nil || user == nil {
+		return nil, errors.New("user not found")
 	}
 
 	streamKey := userID + ":" + accountType
@@ -687,6 +779,11 @@ func (s *tradeService) HandleCloseTradeResponse(response interfaces.TradeRespons
 		return fmt.Errorf("trade account type mismatch: expected %s, got %s", trade.AccountType, response.AccountType)
 	}
 
+	account, err := s.accountRepo.GetAccountByID(trade.AccountID)
+	if err != nil || account == nil {
+		return errors.New("account not found")
+	}
+
 	trade.Status = string(models.TradeStatusClosed)
 	trade.CloseTime = &time.Time{}
 	secs := int64(response.Timestamp)
@@ -695,25 +792,15 @@ func (s *tradeService) HandleCloseTradeResponse(response interfaces.TradeRespons
 	trade.ClosePrice = response.ClosePrice
 	trade.CloseReason = response.CloseReason
 
-	user, err := s.userRepo.GetUserByID(trade.UserID)
-	if err != nil {
-		return err
+	profit := (response.ClosePrice - trade.EntryPrice) * trade.Volume
+	if trade.TradeType == models.TradeTypeSell {
+		profit = -profit
 	}
-	if user != nil {
-		profit := (response.ClosePrice - trade.EntryPrice) * trade.Volume
-		if trade.TradeType == models.TradeTypeSell {
-			profit = -profit
-		}
 
-		margin := trade.Volume * trade.EntryPrice / float64(trade.Leverage)
-		if trade.AccountType == "DEMO" {
-			user.DemoMT5Balance += profit + margin
-		} else {
-			user.RealMT5Balance += profit + margin
-		}
-		if err := s.userRepo.UpdateUser(user); err != nil {
-			log.Printf("Failed to update user balance: %v", err)
-		}
+	margin := trade.Volume * trade.EntryPrice / float64(trade.Leverage)
+	account.Balance += profit + margin
+	if err := s.accountRepo.UpdateAccount(account); err != nil {
+		log.Printf("Failed to update account balance: %v", err)
 	}
 
 	err = s.tradeRepo.SaveTrade(trade)
@@ -797,7 +884,7 @@ func (s *tradeService) HandleOrderStreamResponse(response models.OrderStreamResp
 	}
 
 	metadata := map[string]interface{}{
-		"user_id":      response.UserID,
+		"user_id":      response.UserID.Hex(),
 		"account_type": response.AccountType,
 		"trade_count":  len(response.Trades),
 	}
@@ -840,9 +927,15 @@ func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, account
 		return interfaces.TradeResponse{}, errors.New("user not found")
 	}
 
-	account, err := s.userRepo.GetUserByID(accountObjID)
-	if err != nil || account == nil || account.TelegramID != userID {
+	account, err := s.accountRepo.GetAccountByID(accountObjID)
+	if err != nil || account == nil || account.UserID != userObjID {
 		return interfaces.TradeResponse{}, errors.New("account not found or does not belong to user")
+	}
+	if account.AccountType != accountType {
+		return interfaces.TradeResponse{}, fmt.Errorf("account type mismatch: expected %s, got %s", account.AccountType, accountType)
+	}
+	if account.WalletID == "" {
+		return interfaces.TradeResponse{}, errors.New("no wallet registered for this account")
 	}
 
 	trade, err := s.tradeRepo.GetTradeByID(tradeObjID)
@@ -875,6 +968,7 @@ func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, account
 		"user_id":      userID,
 		"account_id":   accountID,
 		"account_type": accountType,
+		"wallet_id":    account.WalletID, // Include wallet ID
 		"entry_price":  entryPrice,
 		"volume":       volume,
 	}

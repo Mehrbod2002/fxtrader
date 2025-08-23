@@ -9,6 +9,7 @@ import (
 
 	"github.com/mehrbod2002/fxtrader/internal/config"
 	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
 	"github.com/mehrbod2002/fxtrader/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -33,11 +34,12 @@ type TransferRequest struct {
 }
 
 type UserHandler struct {
-	userService     service.UserService
-	accountService  service.AccountService
-	transferService service.TransferService
-	logService      service.LogService
-	cfg             *config.Config
+	userService       service.UserService
+	accountService    service.AccountService
+	transferService   service.TransferService
+	logService        service.LogService
+	accountRepository repository.AccountRepository
+	cfg               *config.Config
 }
 
 func NewUserHandler(
@@ -45,14 +47,16 @@ func NewUserHandler(
 	accountService service.AccountService,
 	transferService service.TransferService,
 	logService service.LogService,
+	accountRepository repository.AccountRepository,
 	cfg *config.Config,
 ) *UserHandler {
 	return &UserHandler{
-		userService:     userService,
-		accountService:  accountService,
-		transferService: transferService,
-		logService:      logService,
-		cfg:             cfg,
+		userService:       userService,
+		accountService:    accountService,
+		transferService:   transferService,
+		accountRepository: accountRepository,
+		logService:        logService,
+		cfg:               cfg,
 	}
 }
 
@@ -97,8 +101,6 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 		RegistrationDate: time.Now().Format(time.RFC3339),
 		IsActive:         false,
 		Balance:          0.0,
-		DemoMT5Balance:   0.0,
-		RealMT5Balance:   0.0,
 		Bonus:            0.0,
 	}
 
@@ -237,11 +239,6 @@ func (h *UserHandler) DeleteAccount(c *gin.Context) {
 		return
 	}
 
-	if accountID == userID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot delete main account"})
-		return
-	}
-
 	err = h.accountService.DeleteAccount(accountObjID, userObjID)
 	if err != nil {
 		if err.Error() == "account not found" {
@@ -365,7 +362,7 @@ func (h *UserHandler) Login(c *gin.Context) {
 // @Router /users/{id} [get]
 func (h *UserHandler) GetUser(c *gin.Context) {
 	id := c.Param("id")
-	user, err := h.userService.GetUser(id)
+	user, err := h.userService.GetUserByTelegramID(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
@@ -477,11 +474,6 @@ func (h *UserHandler) TransferBalance(c *gin.Context) {
 		return
 	}
 
-	if req.SourceID != userID || req.DestID != userID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Transfers are only supported within the main account"})
-		return
-	}
-
 	if req.SourceID == req.DestID && req.SourceType == req.DestType {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Source and destination cannot be the same"})
 		return
@@ -497,16 +489,18 @@ func (h *UserHandler) TransferBalance(c *gin.Context) {
 		return
 	}
 
-	err = h.transferService.TransferBalance(req.SourceID, req.DestID, req.Amount, req.SourceType, req.DestType)
+	err = h.transferService.TransferBalance(userObjID, req.SourceID, req.DestID, req.Amount, req.SourceType, req.DestType)
 	if err != nil {
 		switch {
 		case strings.Contains(err.Error(), "insufficient balance"):
 			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient balance in source account"})
-		case strings.Contains(err.Error(), "source user not found") || strings.Contains(err.Error(), "destination user not found"):
+		case strings.Contains(err.Error(), "not found"):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
-		case strings.Contains(err.Error(), "invalid source account type") || strings.Contains(err.Error(), "invalid destination account type"):
+		case strings.Contains(err.Error(), "invalid") || strings.Contains(err.Error(), "mismatch"):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		case strings.Contains(err.Error(), "cannot transfer between demo and real"):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		case strings.Contains(err.Error(), "same user"):
 			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Transfer failed: %v", err)})
@@ -514,29 +508,38 @@ func (h *UserHandler) TransferBalance(c *gin.Context) {
 		return
 	}
 
-	user, err := h.userService.GetUser(userID.(string))
-	if err != nil || user == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated user"})
-		return
+	var sourceBal float64
+	if req.SourceType == "main" {
+		user, err := h.userService.GetUser(userID.(string))
+		if err != nil || user == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated source balance"})
+			return
+		}
+		sourceBal = user.Balance
+	} else {
+		acc, err := h.accountService.GetAccount(req.SourceID)
+		if err != nil || acc == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated source balance"})
+			return
+		}
+		sourceBal = acc.Balance
 	}
 
-	var sourceBalance, destBalance float64
-	switch req.SourceType {
-	case "main":
-		sourceBalance = user.Balance
-	case "demo":
-		sourceBalance = user.DemoMT5Balance
-	case "real":
-		sourceBalance = user.RealMT5Balance
-	}
-
-	switch req.DestType {
-	case "main":
-		destBalance = user.Balance
-	case "demo":
-		destBalance = user.DemoMT5Balance
-	case "real":
-		destBalance = user.RealMT5Balance
+	var destBal float64
+	if req.DestType == "main" {
+		user, err := h.userService.GetUser(userID.(string))
+		if err != nil || user == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated destination balance"})
+			return
+		}
+		destBal = user.Balance
+	} else {
+		acc, err := h.accountRepository.GetAccountByName(req.DestID)
+		if err != nil || acc == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated destination balance"})
+			return
+		}
+		destBal = acc.Balance
 	}
 
 	metadata := map[string]interface{}{
@@ -552,8 +555,8 @@ func (h *UserHandler) TransferBalance(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":         "Transfer successful",
-		"source_balance": sourceBalance,
-		"dest_balance":   destBalance,
+		"source_balance": sourceBal,
+		"dest_balance":   destBal,
 	})
 }
 

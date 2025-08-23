@@ -21,29 +21,28 @@ type CopyTradeService interface {
 }
 
 type copyTradeService struct {
-	copyTradeRepo repository.CopyTradeRepository
-	tradeService  interfaces.TradeService
-	userService   UserService
-	logService    LogService
+	copyTradeRepo  repository.CopyTradeRepository
+	tradeService   interfaces.TradeService
+	userService    UserService
+	accountService AccountService
+	logService     LogService
 }
 
 func (s *copyTradeService) SetTradeService(tradeService interfaces.TradeService) {
 	s.tradeService = tradeService
 }
 
-func NewCopyTradeService(copyTradeRepo repository.CopyTradeRepository, tradeService interfaces.TradeService, userService UserService, logService LogService) CopyTradeService {
+func NewCopyTradeService(copyTradeRepo repository.CopyTradeRepository, tradeService interfaces.TradeService, userService UserService, accountService AccountService, logService LogService) CopyTradeService {
 	return &copyTradeService{
-		copyTradeRepo: copyTradeRepo,
-		tradeService:  tradeService,
-		userService:   userService,
-		logService:    logService,
+		copyTradeRepo:  copyTradeRepo,
+		tradeService:   tradeService,
+		userService:    userService,
+		accountService: accountService,
+		logService:     logService,
 	}
 }
 
 func (s *copyTradeService) CreateSubscription(followerID, leaderID string, allocatedAmount float64, accountType string) (*models.CopyTradeSubscription, error) {
-	// if followerID == leaderID {
-	// 	return nil, errors.New("cannot follow yourself")
-	// }
 	if allocatedAmount <= 0 {
 		return nil, errors.New("allocated amount must be positive")
 	}
@@ -60,7 +59,22 @@ func (s *copyTradeService) CreateSubscription(followerID, leaderID string, alloc
 		return nil, errors.New("user is not an approved copy trade leader")
 	}
 
-	followerBalance, err := s.tradeService.RequestBalance(followerID, accountType)
+	accounts, err := s.accountService.GetAccountsByUserID(followerID)
+	if err != nil {
+		return nil, errors.New("failed to fetch follower accounts")
+	}
+	var followerAccount *models.Account
+	for _, acc := range accounts {
+		if acc.AccountType == accountType {
+			followerAccount = acc
+			break
+		}
+	}
+	if followerAccount == nil {
+		return nil, errors.New("follower does not have account of type " + accountType)
+	}
+
+	followerBalance, err := s.tradeService.RequestBalance(followerID, followerAccount.ID.Hex(), accountType)
 	if err != nil {
 		return nil, errors.New("failed to fetch follower balance")
 	}
@@ -74,6 +88,7 @@ func (s *copyTradeService) CreateSubscription(followerID, leaderID string, alloc
 		FollowerIDTelegram: follower.TelegramID,
 		LeaderIDTelegram:   leader.TelegramID,
 		AllocatedAmount:    allocatedAmount,
+		AccountType:        accountType,
 		Status:             "ACTIVE",
 	}
 
@@ -117,7 +132,8 @@ func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory, account
 		return err
 	}
 
-	leaderBalance, err := s.tradeService.RequestBalance(leaderTrade.UserID.Hex(), accountType)
+	leaderAccountID := leaderTrade.AccountID.Hex()
+	leaderBalance, err := s.tradeService.RequestBalance(leaderTrade.UserID.Hex(), leaderAccountID, accountType)
 	if err != nil {
 		return errors.New("failed to fetch leader balance")
 	}
@@ -128,7 +144,26 @@ func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory, account
 	volumeRatio := leaderTrade.Volume / leaderBalance
 
 	for _, sub := range subscriptions {
-		followerBalance, err := s.tradeService.RequestBalance(sub.FollowerID, accountType)
+		if sub.AccountType != accountType {
+			continue
+		}
+
+		accounts, err := s.accountService.GetAccountsByUserID(sub.FollowerID)
+		if err != nil {
+			continue
+		}
+		var followerAccount *models.Account
+		for _, acc := range accounts {
+			if acc.AccountType == accountType {
+				followerAccount = acc
+				break
+			}
+		}
+		if followerAccount == nil {
+			continue
+		}
+
+		followerBalance, err := s.tradeService.RequestBalance(sub.FollowerID, followerAccount.ID.Hex(), accountType)
 		if err != nil {
 			continue
 		}
@@ -136,7 +171,7 @@ func (s *copyTradeService) MirrorTrade(leaderTrade *models.TradeHistory, account
 		followerVolume := math.Min(sub.AllocatedAmount, followerBalance) * volumeRatio
 		followerTrade, _, err := s.tradeService.PlaceTrade(
 			sub.FollowerID,
-			"copy_trade_account",
+			followerAccount.ID.Hex(),
 			leaderTrade.Symbol,
 			accountType,
 			leaderTrade.TradeType,
