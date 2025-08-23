@@ -21,23 +21,39 @@ type LoginRequest struct {
 
 type CreateAccountRequest struct {
 	AccountName string `json:"account_name" binding:"required"`
-	AccountType string `json:"account_type" binding:"required"`
+	AccountType string `json:"account_type" binding:"required"` // demo or real
 }
 
 type TransferRequest struct {
-	SourceID string  `json:"source_id" binding:"required"`
-	DestID   string  `json:"dest_id" binding:"required"`
-	Amount   float64 `json:"amount" binding:"required,gt=0"`
+	SourceID   string  `json:"source_id" binding:"required"`
+	DestID     string  `json:"dest_id" binding:"required"`
+	Amount     float64 `json:"amount" binding:"required,gt=0"`
+	SourceType string  `json:"source_type" binding:"required"`
+	DestType   string  `json:"dest_type" binding:"required"`
 }
 
 type UserHandler struct {
-	userService service.UserService
-	logService  service.LogService
-	cfg         *config.Config
+	userService     service.UserService
+	accountService  service.AccountService
+	transferService service.TransferService
+	logService      service.LogService
+	cfg             *config.Config
 }
 
-func NewUserHandler(userService service.UserService, logService service.LogService, cfg *config.Config) *UserHandler {
-	return &UserHandler{userService: userService, logService: logService, cfg: cfg}
+func NewUserHandler(
+	userService service.UserService,
+	accountService service.AccountService,
+	transferService service.TransferService,
+	logService service.LogService,
+	cfg *config.Config,
+) *UserHandler {
+	return &UserHandler{
+		userService:     userService,
+		accountService:  accountService,
+		transferService: transferService,
+		logService:      logService,
+		cfg:             cfg,
+	}
 }
 
 // @Summary Sign up a new user
@@ -45,14 +61,14 @@ func NewUserHandler(userService service.UserService, logService service.LogServi
 // @Tags Users
 // @Accept json
 // @Produce json
-// @Param user body models.UserAccount true "User account details"
+// @Param user body models.User true "User account details"
 // @Success 201 {object} map[string]interface{} "User created"
 // @Failure 400 {object} map[string]string "Invalid JSON"
 // @Failure 409 {object} map[string]string "User already exists"
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /users/signup [post]
 func (h *UserHandler) SignupUser(c *gin.Context) {
-	var req models.UserAccount
+	var req models.User
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
 		return
@@ -68,7 +84,7 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 		return
 	}
 
-	user := &models.UserAccount{
+	user := &models.User{
 		FullName:         req.FullName,
 		PhoneNumber:      req.PhoneNumber,
 		TelegramID:       req.TelegramID,
@@ -76,17 +92,18 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 		CardNumber:       req.CardNumber,
 		Citizenship:      req.Citizenship,
 		NationalID:       req.NationalID,
-		AccountType:      "main",
-		AccountTypes:     []string{"main"},
-		AccountID:        primitive.NewObjectID(),
-		AccountName:      req.Username,
+		Residence:        req.Residence,
+		BirthDay:         req.BirthDay,
 		RegistrationDate: time.Now().Format(time.RFC3339),
 		IsActive:         false,
+		Balance:          0.0,
+		DemoMT5Balance:   0.0,
+		RealMT5Balance:   0.0,
+		Bonus:            0.0,
 	}
 
 	if user.Username == "" {
 		user.Username = "user_" + user.TelegramID
-		user.AccountName = user.Username
 	}
 
 	var referredBy primitive.ObjectID
@@ -121,9 +138,10 @@ func (h *UserHandler) SignupUser(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{
-		"status":  "User created",
-		"user_id": user.ID.Hex(),
-		"user":    user,
+		"status":       "User created",
+		"user_id":      user.ID.Hex(),
+		"user":         user,
+		"main_account": user.Username,
 	})
 }
 
@@ -157,14 +175,18 @@ func (h *UserHandler) CreateAccount(c *gin.Context) {
 		return
 	}
 
-	account := &models.UserAccount{
-		ID:          primitive.NewObjectID(),
-		AccountName: req.AccountName,
-		AccountType: req.AccountType,
-		TelegramID:  userID.(string),
+	if req.AccountType != "demo" && req.AccountType != "real" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account type"})
+		return
 	}
 
-	if err := h.userService.CreateAccount(account); err != nil {
+	account := &models.Account{
+		UserID:      userObjID,
+		AccountName: req.AccountName,
+		AccountType: req.AccountType,
+	}
+
+	if err := h.accountService.CreateAccount(account); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create account"})
 		return
 	}
@@ -182,38 +204,6 @@ func (h *UserHandler) CreateAccount(c *gin.Context) {
 		"account_id":   account.ID.Hex(),
 		"account_name": account.AccountName,
 	})
-}
-
-// @Summary Get user accounts
-// @Description Retrieves a list of accounts for the authenticated user
-// @Tags Users
-// @Produce json
-// @Success 200 {array} models.UserAccount
-// @Failure 401 {object} map[string]string "Unauthorized"
-// @Failure 500 {object} map[string]string "Server error"
-// @Router /accounts [get]
-func (h *UserHandler) GetUserAccounts(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	accounts, err := h.userService.GetUserAccounts(userID.(string))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve accounts"})
-		return
-	}
-
-	metadata := map[string]interface{}{
-		"user_id": userID,
-		"count":   len(accounts),
-	}
-	if err := h.logService.LogAction(primitive.ObjectID{}, "GetUserAccounts", "Retrieved user accounts", c.ClientIP(), metadata); err != nil {
-		log.Printf("error: %v", err)
-	}
-
-	c.JSON(http.StatusOK, accounts)
 }
 
 // @Summary Delete user account
@@ -234,6 +224,12 @@ func (h *UserHandler) DeleteAccount(c *gin.Context) {
 		return
 	}
 
+	userObjID, err := primitive.ObjectIDFromHex(userID.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
 	accountID := c.Param("id")
 	accountObjID, err := primitive.ObjectIDFromHex(accountID)
 	if err != nil {
@@ -241,7 +237,12 @@ func (h *UserHandler) DeleteAccount(c *gin.Context) {
 		return
 	}
 
-	err = h.userService.DeleteAccount(userID.(string), accountObjID)
+	if accountID == userID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Cannot delete main account"})
+		return
+	}
+
+	err = h.accountService.DeleteAccount(accountObjID, userObjID)
 	if err != nil {
 		if err.Error() == "account not found" {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Account not found"})
@@ -267,14 +268,14 @@ func (h *UserHandler) DeleteAccount(c *gin.Context) {
 // @Tags Users
 // @Accept json
 // @Produce json
-// @Param user body models.UserAccount true "User account details"
+// @Param user body models.User true "User account details"
 // @Success 201 {object} map[string]interface{} "User created"
 // @Failure 400 {object} map[string]string "Invalid JSON"
 // @Failure 409 {object} map[string]string "User already exists"
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /users/edit [post]
 func (h *UserHandler) EditUser(c *gin.Context) {
-	var user models.UserAccount
+	var user models.User
 	if err := c.ShouldBindJSON(&user); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid JSON error: %v", err)})
 		return
@@ -286,7 +287,7 @@ func (h *UserHandler) EditUser(c *gin.Context) {
 		return
 	}
 	if existingUser == nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "User with this Telegram ID not exists"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "User with this Telegram ID not found"})
 		return
 	}
 
@@ -301,7 +302,7 @@ func (h *UserHandler) EditUser(c *gin.Context) {
 		"username": user.Username,
 		"user_id":  user.ID.Hex(),
 	}
-	if err := h.logService.LogAction(user.ID, "UserSignup", "User edited up via Telegram", c.ClientIP(), metadata); err != nil {
+	if err := h.logService.LogAction(user.ID, "UserEdit", "User edited via Telegram", c.ClientIP(), metadata); err != nil {
 		log.Printf("error: %v", err)
 	}
 
@@ -358,13 +359,13 @@ func (h *UserHandler) Login(c *gin.Context) {
 // @Tags Users
 // @Produce json
 // @Param id path string true "User ID"
-// @Success 200 {object} models.UserAccount
+// @Success 200 {object} models.User
 // @Failure 400 {object} map[string]string "Invalid user ID"
 // @Failure 404 {object} map[string]string "User not found"
 // @Router /users/{id} [get]
 func (h *UserHandler) GetUser(c *gin.Context) {
 	id := c.Param("id")
-	user, err := h.userService.GetUserByTelegramID(id)
+	user, err := h.userService.GetUser(id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
@@ -388,7 +389,7 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 // @Description Retrieves a list of all users
 // @Tags Users
 // @Produce json
-// @Success 200 {array} models.UserAccount
+// @Success 200 {array} models.User
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /users [get]
 func (h *UserHandler) GetAllUsers(c *gin.Context) {
@@ -413,7 +414,7 @@ func (h *UserHandler) GetAllUsers(c *gin.Context) {
 // @Tags Users
 // @Produce json
 // @Param id path string true "Telegram ID of the user"
-// @Success 200 {object} models.UserAccount
+// @Success 200 {object} models.User
 // @Failure 400 {object} map[string]string "Bad request"
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /users/me/{id} [get]
@@ -429,12 +430,15 @@ func (h *UserHandler) GetMe(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve user"})
 		return
 	}
+	if user == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
 
 	metadata := map[string]interface{}{
 		"user_id": userID,
 	}
-
-	if err := h.logService.LogAction(primitive.NilObjectID, "GetMe", "Retrieved own profile", c.ClientIP(), metadata); err != nil {
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetMe", "Retrieved own profile", c.ClientIP(), metadata); err != nil {
 		log.Printf("error: %v", err)
 	}
 
@@ -467,120 +471,82 @@ func (h *UserHandler) TransferBalance(c *gin.Context) {
 		return
 	}
 
-	userStr := userID.(string)
-
-	sourceObjID, err := primitive.ObjectIDFromHex(req.SourceID)
+	userObjID, err := primitive.ObjectIDFromHex(userID.(string))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid source ID"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
 	}
 
-	destObjID, err := primitive.ObjectIDFromHex(req.DestID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid destination ID"})
+	if req.SourceID != userID || req.DestID != userID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Transfers are only supported within the main account"})
 		return
 	}
 
-	if sourceObjID == destObjID {
+	if req.SourceID == req.DestID && req.SourceType == req.DestType {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Source and destination cannot be the same"})
 		return
 	}
 
-	source, err := h.userService.GetUser(req.SourceID)
-	if err != nil || source == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Source account not found"})
-		return
-	}
-
-	if source.TelegramID != userStr {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Source account does not belong to you"})
-		return
-	}
-
-	dest, err := h.userService.GetUser(req.DestID)
-	if err != nil || dest == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Destination account not found"})
-		return
-	}
-
-	if dest.TelegramID != userStr {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Destination account does not belong to you"})
-		return
-	}
-
-	// Validate account types
-	if source.AccountType != "main" && source.AccountType != "demo" && source.AccountType != "real" {
+	if req.SourceType != "main" && req.SourceType != "demo" && req.SourceType != "real" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid source account type"})
 		return
 	}
 
-	if dest.AccountType != "main" && dest.AccountType != "demo" && dest.AccountType != "real" {
+	if req.DestType != "main" && req.DestType != "demo" && req.DestType != "real" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid destination account type"})
 		return
 	}
 
-	// Restrict transfers between demo and real accounts
-	if (source.AccountType == "demo" && dest.AccountType == "real") ||
-		(source.AccountType == "real" && dest.AccountType == "demo") {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot transfer between demo and real accounts"})
-		return
-	}
-
-	err = h.userService.TransferBalance(sourceObjID, destObjID, req.Amount, source.AccountType, dest.AccountType)
+	err = h.transferService.TransferBalance(req.SourceID, req.DestID, req.Amount, req.SourceType, req.DestType)
 	if err != nil {
 		switch {
 		case strings.Contains(err.Error(), "insufficient balance"):
 			c.JSON(http.StatusForbidden, gin.H{"error": "Insufficient balance in source account"})
-		case strings.Contains(err.Error(), "source account not found") || strings.Contains(err.Error(), "destination account not found"):
+		case strings.Contains(err.Error(), "source user not found") || strings.Contains(err.Error(), "destination user not found"):
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		case strings.Contains(err.Error(), "invalid source account type") || strings.Contains(err.Error(), "invalid destination account type"):
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case strings.Contains(err.Error(), "cannot transfer between demo and real"):
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Transfer failed: %v", err)})
 		}
 		return
 	}
 
-	updatedSource, err := h.userService.GetUser(req.SourceID)
-	if err != nil || updatedSource == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated source account"})
+	user, err := h.userService.GetUser(userID.(string))
+	if err != nil || user == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated user"})
 		return
 	}
 
-	updatedDest, err := h.userService.GetUser(req.DestID)
-	if err != nil || updatedDest == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated destination account"})
-		return
+	var sourceBalance, destBalance float64
+	switch req.SourceType {
+	case "main":
+		sourceBalance = user.Balance
+	case "demo":
+		sourceBalance = user.DemoMT5Balance
+	case "real":
+		sourceBalance = user.RealMT5Balance
 	}
 
-	var sourceBalance float64
-	switch updatedSource.AccountType {
+	switch req.DestType {
 	case "main":
-		sourceBalance = updatedSource.Balance
+		destBalance = user.Balance
 	case "demo":
-		sourceBalance = updatedSource.DemoMT5Balance
+		destBalance = user.DemoMT5Balance
 	case "real":
-		sourceBalance = updatedSource.RealMT5Balance
-	}
-
-	var destBalance float64
-	switch updatedDest.AccountType {
-	case "main":
-		destBalance = updatedDest.Balance
-	case "demo":
-		destBalance = updatedDest.DemoMT5Balance
-	case "real":
-		destBalance = updatedDest.RealMT5Balance
+		destBalance = user.RealMT5Balance
 	}
 
 	metadata := map[string]interface{}{
 		"source_id":   req.SourceID,
 		"dest_id":     req.DestID,
 		"amount":      req.Amount,
-		"source_type": source.AccountType,
-		"dest_type":   dest.AccountType,
+		"source_type": req.SourceType,
+		"dest_type":   req.DestType,
 	}
-	if err := h.logService.LogAction(source.ID, "TransferBalance", "Transferred balance between accounts", c.ClientIP(), metadata); err != nil {
+	if err := h.logService.LogAction(userObjID, "TransferBalance", "Transferred balance within main account", c.ClientIP(), metadata); err != nil {
 		log.Printf("Failed to log transfer action: %v", err)
 	}
 
@@ -589,4 +555,36 @@ func (h *UserHandler) TransferBalance(c *gin.Context) {
 		"source_balance": sourceBalance,
 		"dest_balance":   destBalance,
 	})
+}
+
+// @Summary Get user accounts
+// @Description Retrieves a list of accounts for the authenticated user
+// @Tags Users
+// @Produce json
+// @Success 200 {array} models.User
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /accounts [get]
+func (h *UserHandler) GetUserAccounts(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	accounts, err := h.accountService.GetAccountsByUserID(userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve accounts"})
+		return
+	}
+
+	metadata := map[string]interface{}{
+		"user_id": userID,
+		"count":   len(accounts),
+	}
+	if err := h.logService.LogAction(primitive.ObjectID{}, "GetUsers", "Retrieved user accounts", c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
+
+	c.JSON(http.StatusOK, accounts)
 }

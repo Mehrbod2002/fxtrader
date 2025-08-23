@@ -34,6 +34,8 @@ func SetupRoutes(
 	wsHandler *ws.WebSocketHandler,
 	hub *ws.Hub,
 	leaderRequestService service.LeaderRequestService,
+	accountService service.AccountService,
+	transferService service.TransferService,
 ) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "healthy"})
@@ -48,7 +50,7 @@ func SetupRoutes(
 	}))
 
 	priceHandler := NewPriceHandler(priceService, logService)
-	userHandler := NewUserHandler(userService, logService, cfg)
+	userHandler := NewUserHandler(userService, accountService, transferService, logService, cfg)
 	symbolHandler := NewSymbolHandler(symbolService, logService)
 	logHandler := NewLogHandler(logService)
 	overviewHandler := NewOverviewHandler(userService, tradeService, transactionService, symbolService, logService)

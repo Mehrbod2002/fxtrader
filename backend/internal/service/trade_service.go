@@ -536,9 +536,7 @@ func (s *tradeService) RequestBalance(userID, accountType string) (float64, erro
 	if user == nil {
 		return 0, errors.New("user not found")
 	}
-	if !slices.Contains(user.AccountTypes, accountType) {
-		return 0, fmt.Errorf("user does not have %s account", accountType)
-	}
+
 	balance := user.DemoMT5Balance
 	if accountType == "REAL" {
 		balance = user.RealMT5Balance

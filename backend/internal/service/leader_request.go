@@ -15,7 +15,7 @@ type LeaderRequestService interface {
 	ApproveLeaderRequest(requestID string, adminReason string) error
 	DenyLeaderRequest(requestID string, adminReason string) error
 	GetPendingLeaderRequests() ([]*models.LeaderRequest, error)
-	GetApprovedLeaders() ([]*models.UserAccount, error)
+	GetApprovedLeaders() ([]*models.User, error)
 }
 
 type leaderRequestService struct {
@@ -157,6 +157,6 @@ func (s *leaderRequestService) GetPendingLeaderRequests() ([]*models.LeaderReque
 	return s.leaderRequestRepo.GetPendingLeaderRequests()
 }
 
-func (s *leaderRequestService) GetApprovedLeaders() ([]*models.UserAccount, error) {
+func (s *leaderRequestService) GetApprovedLeaders() ([]*models.User, error) {
 	return s.userService.GetUsersByLeaderStatus(true)
 }
