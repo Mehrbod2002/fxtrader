@@ -47,6 +47,7 @@ func main() {
 
 	priceRepo := repository.NewPriceRepository()
 	userRepo := repository.NewUserRepository(client, "fxtrader", "users_fxtrader")
+	accountRepo := repository.NewAccountRepository(client, "fxtrader", "users_user_accounts")
 	symbolRepo := repository.NewSymbolRepository(client, "fxtrader", "symbols_fxtrader")
 	logRepo := repository.NewLogRepository(client, "fxtrader", "logs_fxtrader")
 	ruleRepo := repository.NewRuleRepository(client, "fxtrader", "rules_fxtrader")
@@ -63,6 +64,8 @@ func main() {
 
 	logService := service.NewLogService(logRepo)
 	userService := service.NewUserService(userRepo)
+	accountService := service.NewAccountService(accountRepo)
+	transferService := service.NewTransferService(userRepo)
 	symbolService := service.NewSymbolService(symbolRepo)
 	ruleService := service.NewRuleService(ruleRepo)
 	transactionService := service.NewTransactionService(transactionRepo, logService)
@@ -105,7 +108,7 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 
-	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, hub, leaderRequestService)
+	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, hub, leaderRequestService, accountService, transferService)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
 	log.Printf("Starting server on http://%s", addr)
