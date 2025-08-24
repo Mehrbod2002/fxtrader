@@ -40,14 +40,15 @@ func (s *alertService) CreateAlert(userID string, alert *models.Alert) error {
 	if alert.AlertType != models.AlertTypePrice && alert.AlertType != models.AlertTypeTime {
 		return errors.New("invalid alert type")
 	}
-	if alert.AlertType == models.AlertTypePrice {
+	switch alert.AlertType {
+	case models.AlertTypePrice:
 		if alert.Condition.PriceTarget == nil || *alert.Condition.PriceTarget <= 0 {
 			return errors.New("price target required and must be positive")
 		}
 		if alert.Condition.SL == nil && alert.Condition.TP == nil {
 			return errors.New("comparison must be ABOVE or BELOW")
 		}
-	} else if alert.AlertType == models.AlertTypeTime {
+	case models.AlertTypeTime:
 		if alert.Condition.TriggerTime == nil || alert.Condition.TriggerTime.Before(time.Now()) {
 			return errors.New("trigger time required and must be in the future")
 		}
