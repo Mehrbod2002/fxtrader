@@ -70,7 +70,7 @@ func main() {
 	ruleService := service.NewRuleService(ruleRepo)
 	transactionService := service.NewTransactionService(transactionRepo, logService)
 	alertService := service.NewAlertService(alertRepo, symbolRepo, logService)
-	socketServer, err := socket.NewWebSocketServer(cfg.ListenPort)
+	socketServer, err := socket.NewWebSocketServer(cfg.ListenPort, accountRepo)
 	if err != nil {
 		log.Fatalf("Failed to initialize WebSocket server: %v", err)
 	}

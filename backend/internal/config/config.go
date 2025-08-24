@@ -76,7 +76,7 @@ func Load() (*Config, error) {
 
 	listenPortStr := os.Getenv("LISTEN_PORT")
 	if listenPortStr == "" {
-		listenPortStr = "5001"
+		listenPortStr = "7003"
 	}
 	listenPort, err := strconv.Atoi(listenPortStr)
 	if err != nil {

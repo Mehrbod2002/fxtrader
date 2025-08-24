@@ -146,11 +146,6 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 		return nil, interfaces.TradeResponse{}, errors.New("invalid user ID")
 	}
 
-	accountObjID, err := primitive.ObjectIDFromHex(accountID)
-	if err != nil {
-		return nil, interfaces.TradeResponse{}, errors.New("invalid account ID")
-	}
-
 	user, err := s.userRepo.GetUserByID(userObjID)
 	if err != nil {
 		return nil, interfaces.TradeResponse{}, errors.New("failed to fetch user")
@@ -159,7 +154,7 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 		return nil, interfaces.TradeResponse{}, errors.New("user not found")
 	}
 
-	account, err := s.accountRepo.GetAccountByID(accountObjID)
+	account, err := s.accountRepo.GetAccountByName(accountID)
 	if err != nil {
 		return nil, interfaces.TradeResponse{}, errors.New("failed to fetch account")
 	}
@@ -168,9 +163,6 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 	}
 	if account.AccountType != accountType {
 		return nil, interfaces.TradeResponse{}, fmt.Errorf("account type mismatch: expected %s, got %s", account.AccountType, accountType)
-	}
-	if account.WalletID == "" {
-		return nil, interfaces.TradeResponse{}, errors.New("no wallet registered for this account")
 	}
 
 	symbols, err := s.symbolRepo.GetAllSymbols()
@@ -235,7 +227,7 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 	trade := &models.TradeHistory{
 		ID:          primitive.NewObjectID(),
 		UserID:      userObjID,
-		AccountID:   accountObjID,
+		AccountID:   account.ID,
 		Symbol:      symbol,
 		TradeType:   tradeType,
 		OrderType:   orderType,
@@ -256,6 +248,7 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 		"user_id":      trade.UserID.Hex(),
 		"account_id":   trade.AccountID.Hex(),
 		"account_type": accountType,
+		"account_name": accountID,
 		"wallet_id":    account.WalletID, // Include wallet ID
 		"symbol":       trade.Symbol,
 		"trade_type":   trade.TradeType,
@@ -552,7 +545,6 @@ func (s *tradeService) HandleTradeRequest(request map[string]interface{}) error 
 
 	tradeType := models.TradeType(tradeTypeStr)
 
-	// Validate wallet
 	accountObjID, err := primitive.ObjectIDFromHex(accountID)
 	if err != nil {
 		return errors.New("invalid account ID")
@@ -591,6 +583,7 @@ func (s *tradeService) RequestBalance(userID, accountID, accountType string) (fl
 	if err != nil {
 		return 0, errors.New("invalid user ID")
 	}
+
 	accountObjID, err := primitive.ObjectIDFromHex(accountID)
 	if err != nil {
 		return 0, errors.New("invalid account ID")
@@ -600,6 +593,7 @@ func (s *tradeService) RequestBalance(userID, accountID, accountType string) (fl
 	if err != nil {
 		return 0, errors.New("failed to fetch user")
 	}
+
 	if user == nil {
 		return 0, errors.New("user not found")
 	}
@@ -608,14 +602,38 @@ func (s *tradeService) RequestBalance(userID, accountID, accountType string) (fl
 	if err != nil {
 		return 0, errors.New("failed to fetch account")
 	}
+
 	if account == nil || account.UserID != userObjID {
 		return 0, errors.New("account not found or does not belong to user")
 	}
+
 	if account.AccountType != accountType {
 		return 0, fmt.Errorf("account type mismatch: expected %s, got %s", account.AccountType, accountType)
 	}
 
-	return account.Balance, nil
+	balanceRequest := map[string]interface{}{
+		"type":         "balance_request",
+		"account_name": accountObjID,
+		"user_id":      userID,
+		"account_id":   accountID,
+		"account_type": accountType,
+		"wallet_id":    account.WalletID,
+		"timestamp":    time.Now().Unix(),
+	}
+
+	if err := s.sendToMT5(balanceRequest); err != nil {
+		return 0, fmt.Errorf("failed to send balance request: %v", err)
+	}
+
+	select {
+	case response := <-s.balanceChan:
+		if response.UserID != userID || response.AccountID != accountID || response.AccountType != accountType {
+			return 0, errors.New("invalid balance response")
+		}
+		return response.Balance, nil
+	case <-time.After(10 * time.Second):
+		return 0, errors.New("timeout waiting for balance response")
+	}
 }
 
 func (s *tradeService) CloseTrade(tradeID, userID, accountType, accountID string) (interfaces.TradeResponse, error) {
@@ -648,9 +666,6 @@ func (s *tradeService) CloseTrade(tradeID, userID, accountType, accountID string
 	account, err := s.accountRepo.GetAccountByID(accountObjID)
 	if err != nil || account == nil {
 		return interfaces.TradeResponse{}, errors.New("account not found")
-	}
-	if account.WalletID == "" {
-		return interfaces.TradeResponse{}, errors.New("no wallet registered for this account")
 	}
 
 	closeRequest := map[string]interface{}{
@@ -933,9 +948,6 @@ func (s *tradeService) ModifyTrade(ctx context.Context, userID, tradeID, account
 	}
 	if account.AccountType != accountType {
 		return interfaces.TradeResponse{}, fmt.Errorf("account type mismatch: expected %s, got %s", account.AccountType, accountType)
-	}
-	if account.WalletID == "" {
-		return interfaces.TradeResponse{}, errors.New("no wallet registered for this account")
 	}
 
 	trade, err := s.tradeRepo.GetTradeByID(tradeObjID)

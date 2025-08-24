@@ -114,12 +114,6 @@ func (h *TradeHandler) PlaceTrade(c *gin.Context) {
 	}
 
 	userID := c.GetString("user_id")
-	_, err := primitive.ObjectIDFromHex(req.AccountID)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid account ID"})
-		return
-	}
-
 	trade, tradeResponse, err := h.tradeService.PlaceTrade(userID, req.AccountID, req.SymbolName, req.AccountType, req.TradeType, req.OrderType, req.Leverage, req.Volume, req.EntryPrice, req.StopLoss, req.TakeProfit, req.Expiration)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

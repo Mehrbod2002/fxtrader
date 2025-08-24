@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/mehrbod2002/fxtrader/interfaces"
 	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
 )
 
 const (
@@ -39,6 +40,7 @@ type WebSocketServer struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	upgrader     websocket.Upgrader
+	accountRepo  repository.AccountRepository
 }
 
 type Client struct {
@@ -48,7 +50,7 @@ type Client struct {
 	writeMu    sync.Mutex
 }
 
-func NewWebSocketServer(listenPort int) (*WebSocketServer, error) {
+func NewWebSocketServer(listenPort int, accountInfo repository.AccountRepository) (*WebSocketServer, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &WebSocketServer{
 		listenAddr: fmt.Sprintf(":%d", listenPort),
@@ -61,6 +63,7 @@ func NewWebSocketServer(listenPort int) (*WebSocketServer, error) {
 			WriteBufferSize: 8192,
 			CheckOrigin:     func(r *http.Request) bool { return true },
 		},
+		accountRepo: accountInfo,
 	}, nil
 }
 
@@ -76,6 +79,7 @@ func (s *WebSocketServer) Start(tradeService interfaces.TradeService) error {
 	s.RegisterHandler("handshake", s.handleHandshake)
 	s.RegisterHandler("ping", s.handlePing)
 	s.RegisterHandler("pong", s.handlePong)
+	s.RegisterHandler("balance_request", s.handleBalanceRequest)
 	s.RegisterHandler("disconnect", s.handleDisconnect)
 	s.RegisterHandler("close_trade_response", s.handleCloseTradeResponse)
 	s.RegisterHandler("order_stream_response", s.handleOrderStreamResponse)
@@ -111,6 +115,51 @@ func (s *WebSocketServer) handleTradeResponse(msg map[string]interface{}, client
 	}
 
 	return s.tradeService.HandleTradeResponse(response)
+}
+
+func (s *WebSocketServer) handleBalanceRequest(msg map[string]interface{}, client *Client) error {
+	accountName, ok := msg["account_name"].(string)
+	if !ok || accountName == "" {
+		err := fmt.Errorf("missing or invalid 'account_name' in balance request")
+		errorResponse := map[string]interface{}{
+			"type":      "error",
+			"error":     err.Error(),
+			"timestamp": time.Now().Unix(),
+		}
+		if sendErr := s.sendJSONMessage(client, errorResponse); sendErr != nil {
+			log.Printf("Failed to send error response to client %s: %v", client.clientID, sendErr)
+		}
+		return err
+	}
+
+	account, err := s.accountRepo.GetAccountByName(accountName)
+	if err != nil {
+		errorResponse := map[string]interface{}{
+			"type":      "error",
+			"error":     fmt.Sprintf("failed to retrieve account: %v", err),
+			"timestamp": time.Now().Unix(),
+		}
+		if sendErr := s.sendJSONMessage(client, errorResponse); sendErr != nil {
+			log.Printf("Failed to send error response to client %s: %v", client.clientID, sendErr)
+		}
+		return fmt.Errorf("failed to get account %s: %v", accountName, err)
+	}
+
+	balanceResponse := map[string]interface{}{
+		"type":         "balance_response",
+		"account_name": accountName,
+		"balance":      account.Balance,
+		"timestamp":    time.Now().Unix(),
+	}
+
+	if err := s.sendJSONMessage(client, balanceResponse); err != nil {
+		log.Printf("Failed to send balance response to client %s: %v", client.clientID, err)
+		return fmt.Errorf("failed to send balance response: %v", err)
+	}
+
+	log.Printf("Sent balance response for account %s to client %s", accountName, client.clientID)
+
+	return nil
 }
 
 func (s *WebSocketServer) handleCloseTradeResponse(msg map[string]interface{}, client *Client) error {
