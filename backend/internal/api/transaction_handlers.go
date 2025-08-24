@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
+	"github.com/mehrbod2002/fxtrader/internal/repository"
 	"github.com/mehrbod2002/fxtrader/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -12,12 +13,13 @@ import (
 )
 
 type TransactionHandler struct {
+	accountRepo        repository.UserRepository
 	transactionService service.TransactionService
 	logService         service.LogService
 }
 
-func NewTransactionHandler(transactionService service.TransactionService, logService service.LogService) *TransactionHandler {
-	return &TransactionHandler{transactionService: transactionService, logService: logService}
+func NewTransactionHandler(transactionService service.TransactionService, logService service.LogService, accountRepo repository.UserRepository) *TransactionHandler {
+	return &TransactionHandler{transactionService: transactionService, logService: logService, accountRepo: accountRepo}
 }
 
 // @Summary Request a new transaction
@@ -40,10 +42,13 @@ func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
 	}
 
 	userID := c.GetString("user_id")
+	userObjID, _ := primitive.ObjectIDFromHex(userID)
+	user, _ := h.accountRepo.GetUserByID(userObjID)
 	transaction := &models.Transaction{
 		TransactionType: req.TransactionType,
 		PaymentMethod:   req.PaymentMethod,
 		Amount:          req.Amount,
+		TelegramID:      user.TelegramID,
 		ReceiptImage:    req.ReceiptImage,
 	}
 

@@ -37,6 +37,7 @@ func SetupRoutes(
 	accountService service.AccountService,
 	transferService service.TransferService,
 	accountRepository repository.AccountRepository,
+	userRepository repository.UserRepository,
 ) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "healthy"})
@@ -57,7 +58,7 @@ func SetupRoutes(
 	overviewHandler := NewOverviewHandler(userService, tradeService, transactionService, symbolService, logService)
 	ruleHandler := NewRuleHandler(ruleService)
 	tradeHandler := NewTradeHandler(tradeService, logService, hub)
-	transactionHandler := NewTransactionHandler(transactionService, logService)
+	transactionHandler := NewTransactionHandler(transactionService, logService, userRepository)
 	adminHandler := NewAdminHandler(adminRepo, cfg, userService)
 	alertHandler := NewAlertHandler(alertService, logService)
 	copyTradeHandler := NewCopyTradeHandler(copyTradeService, logService)
