@@ -190,7 +190,7 @@ func (s *WebSocketServer) handleOrderStreamResponse(msg map[string]interface{}, 
 	if err := s.tradeService.HandleOrderStreamResponse(response); err != nil {
 		errResponse := models.ErrorResponse{Error: fmt.Sprintf("Failed to process order stream: %v", err)}
 		if err := client.conn.WriteJSON(errResponse); err != nil {
-			return fmt.Errorf("Error sending error response to client: %v", err)
+			return fmt.Errorf("error sending error response to client: %v", err)
 		}
 		return err
 	}
