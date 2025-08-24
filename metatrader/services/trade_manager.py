@@ -350,9 +350,9 @@ class TradeManager:
                         error=message_rem, matched_volume=0, remaining_volume=trade1.volume
                     )
 
-    async def send_trade_response(self, trade_id: str, user_id: str, status: str, matched_trade_id: str, ws, error: str = None, matched_volume: float = 0, remaining_volume: float = 0):
+    async def send_trade_response(self, trade_id: str, trade_code: int, user_id: str, status: str, matched_trade_id: str, ws, error: str = None, matched_volume: float = 0, remaining_volume: float = 0):
         response = self.trade_factory.create_trade_response(
-            trade_id, user_id, status, matched_volume, matched_trade_id, remaining_volume)
+            trade_id, trade_code, user_id, status, matched_volume, matched_trade_id, remaining_volume)
         if error:
             response.status = error
         try:
@@ -642,14 +642,14 @@ class TradeManager:
                     strategy = self.strategies.get("MARKET")
                     if strategy.execute(trade, self.mt5_client):
                         response = self.trade_factory.create_trade_response(
-                            trade.trade_id, trade.user_id, "EXECUTED", "")
+                            trade.trade_id, trade.trade_code, trade.user_id, "EXECUTED", "")
                         self.trade_repository.queue_message(
                             json.dumps(response.model_dump()))
                         self.remove_trade_from_redis(trade)
             if trade.expiration > 0 and trade.expiration <= current_time:
                 trade.trade_id = ""
                 response = self.trade_factory.create_trade_response(
-                    trade.trade_id, trade.user_id, "EXPIRED", "")
+                    trade.trade_id, trade.trade_code, trade.user_id, "EXPIRED", "")
                 self.trade_repository.queue_message(
                     json.dumps(response.model_dump()))
                 self.trade_repository.remove_from_pool(trade)

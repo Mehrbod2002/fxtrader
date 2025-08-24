@@ -172,8 +172,9 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 
 	var symbolObj *models.Symbol
 	for _, sym := range symbols {
-		if sym.SymbolName == symbol {
+		if sym.DisplayName == symbol {
 			symbolObj = sym
+			symbol = sym.SymbolName
 			break
 		}
 	}
@@ -301,11 +302,13 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 		}
 		trade.Status = tradeResponse.Status
 		trade.MatchedTradeID = tradeResponse.MatchedTradeID
-		if tradeResponse.Status == "MATCHED" {
+
+		switch tradeResponse.Status {
+		case "MATCHED":
 			trade.Status = string(models.TradeStatusOpen)
-		} else if tradeResponse.Status == "PENDING" {
+		case "PENDING":
 			trade.Status = string(models.TradeStatusPending)
-		} else {
+		default:
 			trade.Status = string(models.TradeStatusClosed)
 			trade.CloseTime = &time.Time{}
 			*trade.CloseTime = time.Now()
@@ -315,6 +318,7 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 			s.accountRepo.UpdateAccount(account)
 			return nil, interfaces.TradeResponse{}, fmt.Errorf("trade failed with status: %s", tradeResponse.Status)
 		}
+
 		err = s.tradeRepo.SaveTrade(trade)
 		if err != nil {
 			account.Balance += requiredMargin + symbolObj.CommissionFee
@@ -409,12 +413,13 @@ func (s *tradeService) HandleTradeResponse(response interfaces.TradeResponse) er
 		trade.Volume -= response.MatchedVolume
 	}
 
-	if response.Status == "MATCHED" {
+	switch response.Status {
+	case "MATCHED":
 		trade.Status = string(models.TradeStatusOpen)
 		trade.MatchedTradeID = response.MatchedTradeID
-	} else if response.Status == "PENDING" {
+	case "PENDING":
 		trade.Status = string(models.TradeStatusPending)
-	} else {
+	default:
 		trade.Status = string(models.TradeStatusClosed)
 		trade.CloseTime = &time.Time{}
 		*trade.CloseTime = time.Now()

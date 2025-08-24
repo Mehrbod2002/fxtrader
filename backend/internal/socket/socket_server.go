@@ -163,6 +163,7 @@ func (s *WebSocketServer) handleBalanceRequest(msg map[string]interface{}, clien
 
 	balanceResponse := map[string]interface{}{
 		"type":         "balance_response",
+		"user_id":      userID,
 		"account_name": accountName,
 		"balance":      account.Balance,
 		"timestamp":    time.Now().Unix(),

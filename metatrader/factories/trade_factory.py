@@ -30,10 +30,11 @@ class TradeFactory:
             created_at=datetime.now()
         )
 
-    def create_trade_response(self, trade_id: str, user_id: str, status: str, matched_volume: float, matched_trade_id: str, remaining_volume: float = 0) -> TradeResponse:
+    def create_trade_response(self, trade_id: str, trade_code: int, user_id: str, status: str, matched_volume: float, matched_trade_id: str, remaining_volume: float = 0) -> TradeResponse:
         return TradeResponse(
             trade_id=trade_id,
             user_id=user_id,
+            trade_retcode=trade_code,
             status=status,
             matched_volume=matched_volume,
             matched_trade_id=matched_trade_id,
