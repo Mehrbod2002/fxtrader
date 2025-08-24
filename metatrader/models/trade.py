@@ -8,6 +8,7 @@ class PoolTrade(BaseModel):
     trade_id: str
     user_id: str
     symbol: str
+    trade_code: int
     trade_type: str
     order_type: str
     account_type: str

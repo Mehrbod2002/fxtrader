@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/mehrbod2002/fxtrader/interfaces"
+	"github.com/mehrbod2002/fxtrader/internal/constants"
 	"github.com/mehrbod2002/fxtrader/internal/models"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
 	"github.com/mehrbod2002/fxtrader/internal/socket"
@@ -246,11 +247,12 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 	tradeRequest := map[string]interface{}{
 		"type":         "trade_request",
 		"trade_id":     trade.ID.Hex(),
+		"trade_code":   "",
 		"user_id":      trade.UserID.Hex(),
 		"account_id":   trade.AccountID.Hex(),
 		"account_type": accountType,
 		"account_name": accountID,
-		"wallet_id":    account.WalletID, // Include wallet ID
+		"wallet_id":    account.WalletID,
 		"symbol":       trade.Symbol,
 		"trade_type":   trade.TradeType,
 		"order_type":   trade.OrderType,
@@ -316,7 +318,7 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 			_ = s.tradeRepo.SaveTrade(trade)
 			account.Balance += requiredMargin + symbolObj.CommissionFee
 			s.accountRepo.UpdateAccount(account)
-			return nil, interfaces.TradeResponse{}, fmt.Errorf("trade failed with status: %s", tradeResponse.Status)
+			return nil, interfaces.TradeResponse{}, fmt.Errorf("trade failed with status: %s", constants.TradeRetcodes[tradeResponse.TradeRetcode])
 		}
 
 		err = s.tradeRepo.SaveTrade(trade)
