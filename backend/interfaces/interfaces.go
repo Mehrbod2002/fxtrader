@@ -31,7 +31,7 @@ type TradeResponse struct {
 	TradeID        string  `json:"trade_id"`
 	UserID         string  `json:"user_id"`
 	MatchedTradeID string  `json:"matched_trade_id"`
-	TradeRetcode   float64 `json:"trade_retcode"`
+	TradeRetcode   int     `json:"trade_retcode"`
 	Timestamp      float64 `json:"timestamp"`
 	MatchedVolume  float64 `json:"matched_volume"`
 	AccountType    string  `json:"account_type"`

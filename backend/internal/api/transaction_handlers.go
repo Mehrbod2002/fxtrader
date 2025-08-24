@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/mehrbod2002/fxtrader/internal/models"
-
 	"github.com/mehrbod2002/fxtrader/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -151,20 +150,20 @@ func (h *TransactionHandler) GetTransactionByID(c *gin.Context) {
 	c.JSON(http.StatusOK, transaction)
 }
 
-// @Summary Review a transaction
-// @Description Approves or rejects a transaction with an optional note (admin only)
+// @Summary Approve a transaction
+// @Description Approves a transaction with a reason and admin comment, updating user balance (admin only)
 // @Tags Transactions
 // @Accept json
 // @Produce json
 // @Security BasicAuth
 // @Param id path string true "Transaction ID"
-// @Param review body TransactionReviewRequest true "Review data"
-// @Success 200 {object} map[string]string "Transaction reviewed"
+// @Param review body TransactionReviewRequest true "Approval data"
+// @Success 200 {object} map[string]string "Transaction approved"
 // @Failure 400 {object} map[string]string "Invalid JSON or parameters"
 // @Failure 401 {object} map[string]string "Unauthorized"
-// @Failure 500 {object} map[string]string "Failed to review transaction"
-// @Router /admin/transactions/{id} [put]
-func (h *TransactionHandler) ReviewTransaction(c *gin.Context) {
+// @Failure 500 {object} map[string]string "Failed to approve transaction"
+// @Router /admin/transactions/{id}/approve [put]
+func (h *TransactionHandler) ApproveTransaction(c *gin.Context) {
 	id := c.Param("id")
 	var req TransactionReviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -172,20 +171,85 @@ func (h *TransactionHandler) ReviewTransaction(c *gin.Context) {
 		return
 	}
 
-	if err := h.transactionService.ReviewTransaction(id, req.Status, req.AdminNote); err != nil {
+	if err := h.transactionService.ApproveTransaction(id, req.Reason, req.AdminComment); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
+	transaction, _ := h.transactionService.GetTransactionByID(id)
+	status := "Transaction approved"
+	if transaction != nil {
+		switch transaction.TransactionType {
+		case models.TransactionTypeDeposit:
+			status = "Deposit approved"
+		case models.TransactionTypeWithdrawal:
+			status = "Withdrawal approved"
+		}
+	}
+
 	metadata := map[string]interface{}{
 		"transaction_id": id,
-		"status":         req.Status,
+		"reason":         req.Reason,
+		"admin_comment":  req.AdminComment,
+		"status":         status,
+		"amount":         transaction.Amount,
 	}
-	if err := h.logService.LogAction(primitive.ObjectID{}, "ReviewTransaction", "Transaction reviewed", c.ClientIP(), metadata); err != nil {
+	if err := h.logService.LogAction(primitive.ObjectID{}, "ApproveTransaction", status, c.ClientIP(), metadata); err != nil {
 		log.Printf("error: %v", err)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "Transaction reviewed"})
+	c.JSON(http.StatusOK, gin.H{"status": status})
+}
+
+// @Summary Deny a transaction
+// @Description Rejects a transaction with a reason and admin comment (admin only)
+// @Tags Transactions
+// @Accept json
+// @Produce json
+// @Security BasicAuth
+// @Param id path string true "Transaction ID"
+// @Param review body TransactionReviewRequest true "Denial data"
+// @Success 200 {object} map[string]string "Transaction denied"
+// @Failure 400 {object} map[string]string "Invalid JSON or parameters"
+// @Failure 401 {object} map[string]string "Unauthorized"
+// @Failure 500 {object} map[string]string "Failed to deny transaction"
+// @Router /admin/transactions/{id}/deny [put]
+func (h *TransactionHandler) DenyTransaction(c *gin.Context) {
+	id := c.Param("id")
+	var req TransactionReviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON"})
+		return
+	}
+
+	if err := h.transactionService.DenyTransaction(id, req.Reason, req.AdminComment); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	transaction, _ := h.transactionService.GetTransactionByID(id)
+	status := "Transaction denied"
+	if transaction != nil {
+		switch transaction.TransactionType {
+		case models.TransactionTypeDeposit:
+			status = "Deposit denied"
+		case models.TransactionTypeWithdrawal:
+			status = "Withdrawal denied"
+		}
+	}
+
+	metadata := map[string]interface{}{
+		"transaction_id": id,
+		"reason":         req.Reason,
+		"admin_comment":  req.AdminComment,
+		"status":         status,
+		"amount":         transaction.Amount,
+	}
+	if err := h.logService.LogAction(primitive.ObjectID{}, "DenyTransaction", status, c.ClientIP(), metadata); err != nil {
+		log.Printf("error: %v", err)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": status})
 }
 
 type TransactionRequest struct {
@@ -196,6 +260,6 @@ type TransactionRequest struct {
 }
 
 type TransactionReviewRequest struct {
-	Status    models.TransactionStatus `json:"status" binding:"required,oneof=APPROVED REJECTED"`
-	AdminNote string                   `json:"admin_note,omitempty"`
+	Reason       string `json:"reason" binding:"required"`
+	AdminComment string `json:"admin_comment" binding:"required"`
 }

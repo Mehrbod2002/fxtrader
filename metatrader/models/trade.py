@@ -8,6 +8,7 @@ class PoolTrade(BaseModel):
     trade_id: str
     user_id: str
     symbol: str
+    trade_code: int
     trade_type: str
     order_type: str
     account_type: str
@@ -21,7 +22,7 @@ class PoolTrade(BaseModel):
     comment: str = ""
     slippage: int = 0
     expiration: int
-    magic: int = time.time() % 1000000
+    magic: int = int(time.time() % 1000000)
     ticket: int = 0
     created_at: Optional[datetime] = None
     profit: float = 0.0

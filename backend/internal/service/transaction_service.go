@@ -15,18 +15,21 @@ type TransactionService interface {
 	GetTransactionByID(id string) (*models.Transaction, error)
 	GetTransactionsByUserID(userID string) ([]*models.Transaction, error)
 	GetAllTransactions() ([]*models.Transaction, error)
-	ReviewTransaction(id string, status models.TransactionStatus, adminNote string) error
+	ApproveTransaction(id string, reason string, adminComment string) error
+	DenyTransaction(id string, reason string, adminComment string) error
 }
 
 type transactionService struct {
 	transactionRepo repository.TransactionRepository
 	logService      LogService
+	userInfoRepo    repository.UserRepository
 }
 
-func NewTransactionService(transactionRepo repository.TransactionRepository, logService LogService) TransactionService {
+func NewTransactionService(transactionRepo repository.TransactionRepository, logService LogService, userInfoRepo repository.UserRepository) TransactionService {
 	return &transactionService{
 		transactionRepo: transactionRepo,
 		logService:      logService,
+		userInfoRepo:    userInfoRepo,
 	}
 }
 
@@ -85,7 +88,7 @@ func (s *transactionService) GetAllTransactions() ([]*models.Transaction, error)
 	return s.transactionRepo.GetAllTransactions()
 }
 
-func (s *transactionService) ReviewTransaction(id string, status models.TransactionStatus, adminNote string) error {
+func (s *transactionService) ApproveTransaction(id string, reason string, adminComment string) error {
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return errors.New("invalid transaction ID")
@@ -99,8 +102,73 @@ func (s *transactionService) ReviewTransaction(id string, status models.Transact
 		return errors.New("transaction not found")
 	}
 
-	if status != models.TransactionStatusApproved && status != models.TransactionStatusRejected {
-		return errors.New("invalid status; must be APPROVED or REJECTED")
+	if transaction.Status != models.TransactionStatusPending {
+		return errors.New("transaction already reviewed")
+	}
+
+	responseTime := time.Now()
+	transaction.Status = models.TransactionStatusApproved
+	transaction.ResponseTime = &responseTime
+	transaction.Reason = reason
+	transaction.AdminComment = adminComment
+
+	err = s.transactionRepo.UpdateTransaction(objID, transaction)
+	if err != nil {
+		return err
+	}
+
+	userID, err := primitive.ObjectIDFromHex(transaction.UserID)
+	if err != nil {
+		return errors.New("invalid user ID")
+	}
+	switch transaction.TransactionType {
+	case models.TransactionTypeDeposit:
+		err = s.userInfoRepo.AddBalance(userID, transaction.Amount)
+		if err != nil {
+			return errors.New("failed to add deposit to balance: " + err.Error())
+		}
+	case models.TransactionTypeWithdrawal:
+		err = s.userInfoRepo.SubtractBalance(userID, transaction.Amount)
+		if err != nil {
+			return errors.New("failed to subtract withdrawal from balance: " + err.Error())
+		}
+	}
+
+	metadata := map[string]interface{}{
+		"transaction_id":   id,
+		"status":           models.TransactionStatusApproved,
+		"reason":           reason,
+		"admin_comment":    adminComment,
+		"transaction_type": transaction.TransactionType,
+		"amount":           transaction.Amount,
+	}
+	action := "Transaction approved"
+	switch transaction.TransactionType {
+	case models.TransactionTypeDeposit:
+		action = "Deposit approved"
+	case models.TransactionTypeWithdrawal:
+		action = "Withdrawal approved"
+	}
+
+	if err := s.logService.LogAction(primitive.ObjectID{}, "ApproveTransaction", action, "", metadata); err != nil {
+		return nil
+	}
+
+	return nil
+}
+
+func (s *transactionService) DenyTransaction(id string, reason string, adminComment string) error {
+	objID, err := primitive.ObjectIDFromHex(id)
+	if err != nil {
+		return errors.New("invalid transaction ID")
+	}
+
+	transaction, err := s.transactionRepo.GetTransactionByID(objID)
+	if err != nil {
+		return err
+	}
+	if transaction == nil {
+		return errors.New("transaction not found")
 	}
 
 	if transaction.Status != models.TransactionStatusPending {
@@ -108,9 +176,10 @@ func (s *transactionService) ReviewTransaction(id string, status models.Transact
 	}
 
 	responseTime := time.Now()
-	transaction.Status = status
+	transaction.Status = models.TransactionStatusRejected
 	transaction.ResponseTime = &responseTime
-	transaction.AdminNote = adminNote
+	transaction.Reason = reason
+	transaction.AdminComment = adminComment
 
 	err = s.transactionRepo.UpdateTransaction(objID, transaction)
 	if err != nil {
@@ -118,11 +187,22 @@ func (s *transactionService) ReviewTransaction(id string, status models.Transact
 	}
 
 	metadata := map[string]interface{}{
-		"transaction_id": id,
-		"status":         status,
-		"admin_note":     adminNote,
+		"transaction_id":   id,
+		"status":           models.TransactionStatusRejected,
+		"reason":           reason,
+		"admin_comment":    adminComment,
+		"transaction_type": transaction.TransactionType,
+		"amount":           transaction.Amount,
 	}
-	if err := s.logService.LogAction(primitive.ObjectID{}, "ReviewTransaction", "Transaction reviewed", "", metadata); err != nil {
+	action := "Transaction denied"
+	switch transaction.TransactionType {
+	case models.TransactionTypeDeposit:
+		action = "Deposit denied"
+	case models.TransactionTypeWithdrawal:
+		action = "Withdrawal denied"
+	}
+
+	if err := s.logService.LogAction(primitive.ObjectID{}, "DenyTransaction", action, "", metadata); err != nil {
 		return nil
 	}
 

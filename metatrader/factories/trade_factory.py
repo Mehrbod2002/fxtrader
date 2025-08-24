@@ -13,6 +13,7 @@ class TradeFactory:
     def create_trade(self, json_data: dict) -> PoolTrade:
         return PoolTrade(
             trade_id=json_data.get("trade_id", str(uuid4())),
+            trade_code=json_data.get("trade_code", 0),
             user_id=json_data.get("user_id", ""),
             symbol=json_data.get("symbol", ""),
             account_name=json_data.get("account_name", ""),

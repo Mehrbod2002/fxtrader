@@ -31,7 +31,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/models.UserAccount"
+                                "$ref": "#/definitions/models.User"
                             }
                         }
                     },
@@ -404,7 +404,7 @@ const docTemplate = `{
                         "BasicAuth": []
                     }
                 ],
-                "description": "Retrieves a paginated list of logs associated with a specific user ID (admin only)",
+                "description": "Retrieves a paginated list of logs associated",
                 "produces": [
                     "application/json"
                 ],
@@ -1136,14 +1136,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/admin/transactions/{id}": {
+        "/admin/transactions/{id}/approve": {
             "put": {
                 "security": [
                     {
                         "BasicAuth": []
                     }
                 ],
-                "description": "Approves or rejects a transaction with an optional note (admin only)",
+                "description": "Approves a transaction with a reason and admin comment, updating user balance (admin only)",
                 "consumes": [
                     "application/json"
                 ],
@@ -1153,7 +1153,7 @@ const docTemplate = `{
                 "tags": [
                     "Transactions"
                 ],
-                "summary": "Review a transaction",
+                "summary": "Approve a transaction",
                 "parameters": [
                     {
                         "type": "string",
@@ -1163,7 +1163,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "Review data",
+                        "description": "Approval data",
                         "name": "review",
                         "in": "body",
                         "required": true,
@@ -1174,7 +1174,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Transaction reviewed",
+                        "description": "Transaction approved",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1201,7 +1201,83 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "Failed to review transaction",
+                        "description": "Failed to approve transaction",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/transactions/{id}/deny": {
+            "put": {
+                "security": [
+                    {
+                        "BasicAuth": []
+                    }
+                ],
+                "description": "Rejects a transaction with a reason and admin comment (admin only)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Transactions"
+                ],
+                "summary": "Deny a transaction",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Transaction ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Denial data",
+                        "name": "review",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.TransactionReviewRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Transaction denied",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to deny transaction",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1688,7 +1764,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/models.UserAccount"
+                                "$ref": "#/definitions/models.User"
                             }
                         }
                     },
@@ -2722,7 +2798,7 @@ const docTemplate = `{
             "put": {
                 "security": [
                     {
-                        "Bearer": []
+                        "BearerAuth": []
                     }
                 ],
                 "description": "Modify the entry price and/or volume of a pending trade",
@@ -2929,7 +3005,7 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/models.UserAccount"
+                                "$ref": "#/definitions/models.User"
                             }
                         }
                     },
@@ -2965,7 +3041,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.UserAccount"
+                            "$ref": "#/definitions/models.User"
                         }
                     }
                 ],
@@ -3092,7 +3168,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.UserAccount"
+                            "$ref": "#/definitions/models.User"
                         }
                     },
                     "400": {
@@ -3136,7 +3212,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/models.UserAccount"
+                            "$ref": "#/definitions/models.User"
                         }
                     }
                 ],
@@ -3201,7 +3277,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.UserAccount"
+                            "$ref": "#/definitions/models.User"
                         }
                     },
                     "400": {
@@ -3215,6 +3291,84 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "User not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/wallets/register": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Allows an authenticated user to register a wallet for a specific account",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Trades"
+                ],
+                "summary": "Register a wallet for trading",
+                "parameters": [
+                    {
+                        "description": "Wallet details",
+                        "name": "wallet",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.WalletRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Wallet registered",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid JSON or parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Invalid account",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -3307,6 +3461,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "account_type": {
+                    "description": "demo or real",
                     "type": "string"
                 }
             }
@@ -3533,22 +3688,15 @@ const docTemplate = `{
         "api.TransactionReviewRequest": {
             "type": "object",
             "required": [
-                "status"
+                "admin_comment",
+                "reason"
             ],
             "properties": {
-                "admin_note": {
+                "admin_comment": {
                     "type": "string"
                 },
-                "status": {
-                    "enum": [
-                        "APPROVED",
-                        "REJECTED"
-                    ],
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/models.TransactionStatus"
-                        }
-                    ]
+                "reason": {
+                    "type": "string"
                 }
             }
         },
@@ -3557,7 +3705,9 @@ const docTemplate = `{
             "required": [
                 "amount",
                 "dest_id",
-                "source_id"
+                "dest_type",
+                "source_id",
+                "source_type"
             ],
             "properties": {
                 "amount": {
@@ -3566,7 +3716,13 @@ const docTemplate = `{
                 "dest_id": {
                     "type": "string"
                 },
+                "dest_type": {
+                    "type": "string"
+                },
                 "source_id": {
+                    "type": "string"
+                },
+                "source_type": {
                     "type": "string"
                 }
             }
@@ -3608,9 +3764,27 @@ const docTemplate = `{
                 }
             }
         },
+        "api.WalletRequest": {
+            "type": "object",
+            "required": [
+                "account_id",
+                "wallet_id"
+            ],
+            "properties": {
+                "account_id": {
+                    "type": "string"
+                },
+                "wallet_id": {
+                    "type": "string"
+                }
+            }
+        },
         "interfaces.TradeResponse": {
             "type": "object",
             "properties": {
+                "account_id": {
+                    "type": "string"
+                },
                 "account_type": {
                     "type": "string"
                 },
@@ -3634,6 +3808,9 @@ const docTemplate = `{
                 },
                 "trade_id": {
                     "type": "string"
+                },
+                "trade_retcode": {
+                    "type": "integer"
                 },
                 "user_id": {
                     "type": "string"
@@ -3730,6 +3907,9 @@ const docTemplate = `{
                 "_id": {
                     "type": "string"
                 },
+                "account_type": {
+                    "type": "string"
+                },
                 "allocated_amount": {
                     "type": "number"
                 },
@@ -3752,6 +3932,17 @@ const docTemplate = `{
                     "$ref": "#/definitions/models.ActivceStatus"
                 }
             }
+        },
+        "models.ExecutionType": {
+            "type": "string",
+            "enum": [
+                "platform",
+                "user-to-user"
+            ],
+            "x-enum-varnames": [
+                "ExecutionTypePlatform",
+                "ExecutionTypeUserToUser"
+            ]
         },
         "models.LeaderRequest": {
             "type": "object",
@@ -3910,61 +4101,64 @@ const docTemplate = `{
         "models.TradeHistory": {
             "type": "object",
             "properties": {
-                "accountID": {
+                "Status": {
                     "type": "string"
                 },
-                "accountType": {
+                "_id": {
                     "type": "string"
                 },
-                "closePrice": {
+                "account_id": {
+                    "type": "string"
+                },
+                "account_type": {
+                    "type": "string"
+                },
+                "close_price": {
                     "type": "number"
                 },
-                "closeReason": {
+                "close_reason": {
                     "type": "string"
                 },
-                "closeTime": {
+                "close_time": {
                     "type": "string"
                 },
-                "entryPrice": {
+                "entry_price": {
                     "type": "number"
+                },
+                "execution_type": {
+                    "$ref": "#/definitions/models.ExecutionType"
                 },
                 "expiration": {
-                    "type": "string"
-                },
-                "id": {
                     "type": "string"
                 },
                 "leverage": {
                     "type": "integer"
                 },
-                "matchedTradeID": {
+                "matched_trade_id": {
                     "type": "string"
                 },
-                "openTime": {
+                "open_time": {
                     "type": "string"
                 },
-                "orderType": {
+                "order_type": {
                     "type": "string"
                 },
                 "profit": {
                     "type": "number"
                 },
-                "status": {
-                    "type": "string"
-                },
-                "stopLoss": {
+                "stop_loss": {
                     "type": "number"
                 },
                 "symbol": {
                     "type": "string"
                 },
-                "takeProfit": {
+                "take_profit": {
                     "type": "number"
                 },
-                "tradeType": {
+                "trade_type": {
                     "$ref": "#/definitions/models.TradeType"
                 },
-                "userID": {
+                "user_id": {
                     "type": "string"
                 },
                 "volume": {
@@ -4003,7 +4197,7 @@ const docTemplate = `{
                 "_id": {
                     "type": "string"
                 },
-                "admin_note": {
+                "admin_comment": {
                     "type": "string"
                 },
                 "amount": {
@@ -4011,6 +4205,9 @@ const docTemplate = `{
                 },
                 "payment_method": {
                     "$ref": "#/definitions/models.PaymentMethod"
+                },
+                "reason": {
+                    "type": "string"
                 },
                 "receipt_image": {
                     "type": "string"
@@ -4023,6 +4220,9 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/models.TransactionStatus"
+                },
+                "telegram_id": {
+                    "type": "string"
                 },
                 "transaction_type": {
                     "$ref": "#/definitions/models.TransactionType"
@@ -4056,15 +4256,9 @@ const docTemplate = `{
                 "TransactionTypeWithdrawal"
             ]
         },
-        "models.UserAccount": {
+        "models.User": {
             "type": "object",
             "properties": {
-                "_id": {
-                    "type": "string"
-                },
-                "account_name": {
-                    "type": "string"
-                },
                 "account_type": {
                     "type": "string"
                 },
@@ -4075,6 +4269,7 @@ const docTemplate = `{
                     }
                 },
                 "balance": {
+                    "description": "Main account balance",
                     "type": "number"
                 },
                 "birthday": {
@@ -4089,10 +4284,10 @@ const docTemplate = `{
                 "citizenship": {
                     "type": "string"
                 },
-                "demo_mt5_balance": {
-                    "type": "number"
-                },
                 "full_name": {
+                    "type": "string"
+                },
+                "id": {
                     "type": "string"
                 },
                 "is_active": {
@@ -4112,9 +4307,6 @@ const docTemplate = `{
                 },
                 "phone_number": {
                     "type": "string"
-                },
-                "real_mt5_balance": {
-                    "type": "number"
                 },
                 "referral_code": {
                     "type": "string"

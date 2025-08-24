@@ -68,7 +68,7 @@ func main() {
 	transferService := service.NewTransferService(userRepo, accountRepo)
 	symbolService := service.NewSymbolService(symbolRepo)
 	ruleService := service.NewRuleService(ruleRepo)
-	transactionService := service.NewTransactionService(transactionRepo, logService)
+	transactionService := service.NewTransactionService(transactionRepo, logService, userRepo)
 	alertService := service.NewAlertService(alertRepo, symbolRepo, logService)
 	socketServer, err := socket.NewWebSocketServer(cfg.ListenPort, accountRepo)
 	if err != nil {
