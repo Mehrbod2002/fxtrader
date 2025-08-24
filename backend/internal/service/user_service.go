@@ -204,7 +204,7 @@ func (s *transferService) TransferBalance(userID primitive.ObjectID, sourceID, d
 				return nil, fmt.Errorf("destination account type mismatch: expected %s, got %s", destType, destAccount.AccountType)
 			}
 			destBalance = &destAccount.Balance
-			destUser, err = s.userRepo.GetUserByID(destAccount.UserID)
+			destUser, err = s.userRepo.GetUserByID(userID)
 			if err != nil || destUser == nil {
 				return nil, fmt.Errorf("destination user not found")
 			}
