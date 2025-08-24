@@ -247,11 +247,12 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 	tradeRequest := map[string]interface{}{
 		"type":         "trade_request",
 		"trade_id":     trade.ID.Hex(),
+		"trade_code":   "",
 		"user_id":      trade.UserID.Hex(),
 		"account_id":   trade.AccountID.Hex(),
 		"account_type": accountType,
 		"account_name": accountID,
-		"wallet_id":    account.WalletID, // Include wallet ID
+		"wallet_id":    account.WalletID,
 		"symbol":       trade.Symbol,
 		"trade_type":   trade.TradeType,
 		"order_type":   trade.OrderType,
