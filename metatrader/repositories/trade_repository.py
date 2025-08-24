@@ -3,6 +3,7 @@ from models.trade import PoolTrade
 from config.settings import settings
 from utils.logger import logger
 from services.mt5_client import MT5Client
+from factories.trade_factory import TradeFactory
 import time
 import redis
 import json
@@ -12,6 +13,7 @@ import asyncio
 class TradeRepository:
     def __init__(self, mt5_client: MT5Client):
         self.mt5_client = mt5_client
+        self.trade_factory = TradeFactory(mt5_client)
         self.pool: List[PoolTrade] = []
         self.pool_size: int = 0
         self.redis_client = redis.Redis(
@@ -66,6 +68,26 @@ class TradeRepository:
                     best_match_index = i
 
         return best_match_index
+
+    def validate_trade(self, trade: PoolTrade) -> bool:
+        if trade.trade_type.upper() not in ["BUY", "SELL"]:
+            return False
+        if trade.order_type.upper() not in ["MARKET", "BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
+            return False
+        if trade.account_type.lower() not in ["demo", "real"]:
+            return False
+        if trade.leverage <= 0 or trade.volume <= 0:
+            return False
+        if trade.order_type.upper() != "MARKET" and trade.entry_price < 0:
+            return False
+        if trade.order_type.upper() == "MARKET" and trade.entry_price > 0:
+            return False
+        if trade.stop_loss < 0 or trade.take_profit < 0:
+            return False
+        current_time = int(self.get_timestamp())
+        if trade.expiration > 0 and trade.expiration <= current_time:
+            return False
+        return True
 
     def can_match_trades(self, trade1: PoolTrade, trade2: PoolTrade) -> bool:
         if (trade1.trade_type == trade2.trade_type or trade1.symbol != trade2.symbol or
@@ -192,6 +214,7 @@ class TradeRepository:
                 return rounded_market <= rounded_price1 and rounded_market >= rounded_price2
 
         return False
+
     def is_user_trade(self, user_id: str, trade_id: str, account_type: str) -> bool:
         for trade in self.pool:
             if (
@@ -201,15 +224,16 @@ class TradeRepository:
             ):
                 return True
         return False
-    
+
     def get_timestamp(self):
         tick = self.mt5_client.get_symbol_tick(settings.SYMBOL)
         return tick.time if tick else time.time()
 
-    async def get_user_balance(self, user_id: str, account_type: str, ws) -> float:
+    async def get_user_balance(self, user_id: str, account_type: str, account_name: str, ws) -> float:
         balance_request = {
             "type": "balance_request",
             "user_id": user_id,
+            "account_name": account_name,
             "account_type": account_type,
             "timestamp": float(self.get_timestamp())
         }
@@ -229,66 +253,12 @@ class TradeRepository:
         except Exception as e:
             return 0.0
 
-    async def handle_trade_request(self, json_data: dict, ws) -> bool:
-        symbol = json_data.get("symbol", "")
-        if not self.mt5_client.get_symbol_info(symbol):
-            await self.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
-                                           "FAILED", "", ws, error="Invalid symbol")
-            return False
-
-        volume = json_data.get("volume", 0.0)
-        symbol_info = self.mt5_client.get_symbol_info(symbol)
-        if volume < symbol_info.volume_min or volume > symbol_info.volume_max:
-            await self.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
-                                           "FAILED", "", ws, error="Invalid volume")
-            return False
-
-        trade = self.trade_factory.create_trade(json_data)
-        if not self.validate_trade(trade):
-            await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Invalid trade parameters")
-            return False
-
-        # user_balance = await self.get_user_balance(trade.user_id, trade.account_type, ws) DEMO
-        user_balance = 10000
-        required_margin = (volume * symbol_info.trade_contract_size *
-                           self.mt5_client.get_symbol_tick(symbol).bid) / trade.leverage
-        if user_balance < required_margin:
-            await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Insufficient user balance")
-            return False
-
-        if not self.mt5_client.check_margin(trade.symbol, volume, trade.trade_type):
-            await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Insufficient account margin")
-            return False
-
-        if trade.order_type == "MARKET":
-            strategy = self.strategies.get("MARKET")
-            if strategy is None:
-                await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="No strategy for MARKET")
-                return False
-            
-            if strategy.execute(trade, self.mt5_client):
-                await self.send_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "", ws)
-                self.trade_repository.save_trade_to_redis(trade)
-                return True
-            else:
-                logger.warning(f"Market order {trade.trade_id} failed direct execution")
-                await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Market execution failed")
-                return False
-
-        match_index = self.trade_repository.find_matching_trade(trade)
-        if match_index >= 0:
-            await self.execute_matched_trades(trade, self.trade_repository.pool[match_index], ws)
-            if trade.trade_id != "":
-                self.trade_repository.add_to_pool(trade)
-                await self.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
-        else:
-            self.trade_repository.add_to_pool(trade)
-            await self.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
-            if trade.order_type == "MARKET":
-                strategy = self.strategies.get(trade.order_type)
-                if strategy and strategy.execute(trade, self.mt5_client) and trade.trade_id != "":
-                    await self.send_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "", ws)
-                else:
-                    logger.warning(
-                        f"Market order {trade.trade_id} failed execution, remains PENDING")
-        return True
+    def save_trade_to_redis(self, trade: PoolTrade):
+        try:
+            trade_key = f"trade:{trade.trade_id}:{trade.user_id}:{trade.account_type}"
+            trade_data = trade.__dict__.copy()
+            trade_data["created_at"] = trade_data["created_at"].isoformat() if trade_data["created_at"] else None
+            self.redis_client.set(trade_key, json.dumps(trade_data))
+            logger.info(f"Saved trade {trade.trade_id} to Redis")
+        except Exception as e:
+            logger.error(f"Error saving trade {trade.trade_id} to Redis: {str(e)}")

@@ -11,6 +11,7 @@ class PoolTrade(BaseModel):
     trade_type: str
     order_type: str
     account_type: str
+    account_name: str
     leverage: int
     volume: float
     entry_price: float
@@ -42,6 +43,7 @@ class CloseTradeResponse(BaseModel):
     trade_id: str
     user_id: str
     account_type: str
+    account_name: str
     status: str
     close_price: float
     close_reason: str
@@ -52,6 +54,7 @@ class OrderStreamResponse(BaseModel):
     type: str = "order_stream_response"
     user_id: str
     account_type: str
+    account_name: str
     trades: List[dict]
     timestamp: float
 
@@ -59,6 +62,7 @@ class OrderStreamResponse(BaseModel):
 class BalanceResponse(BaseModel):
     type: str = "balance_response"
     user_id: str
+    account_name: str
     account_type: str
     balance: float
     error: Optional[str] = None

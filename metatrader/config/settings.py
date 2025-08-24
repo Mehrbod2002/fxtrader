@@ -5,7 +5,7 @@ class Settings:
     MT5_PATH = "C:\\Program Files\\MetaTrader 5\\terminal64.exe"
     SYMBOL = "EURUSD_o"
     WEBSOCKET_URL = "localhost"
-    WEBSOCKET_PORT = 30101
+    WEBSOCKET_PORT = 7003 #30101
     WEBSOCKET_PATH = "/ws"
     CLIENT_ID = "MT5_Client_1"
     PING_INTERVAL = 30

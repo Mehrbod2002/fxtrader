@@ -13,6 +13,7 @@ from config.settings import settings
 from utils.logger import logger
 import redis
 
+
 class TradeManager:
     def __init__(self, mt5_client: MT5Client, trade_repository: TradeRepository, trade_factory: TradeFactory):
         self.mt5_client = mt5_client
@@ -31,7 +32,7 @@ class TradeManager:
 
     def load_trades_from_redis(self):
         try:
-            trade_keys = self.redis_client.keys("trade:*")
+            trade_keys = self.redis_client.keys("trade:*:*:*")  # Updated to match exact key format
             for key in trade_keys:
                 trade_data = self.redis_client.get(key)
                 if trade_data:
@@ -68,17 +69,17 @@ class TradeManager:
         return tick.time if tick else time.time()
 
     def validate_trade(self, trade: PoolTrade) -> bool:
-        if trade.trade_type not in ["BUY", "SELL"]:
+        if trade.trade_type.upper() not in ["BUY", "SELL"]:
             return False
-        if trade.order_type not in ["MARKET", "BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
+        if trade.order_type.upper() not in ["MARKET", "BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
             return False
-        if trade.account_type not in ["DEMO", "REAL"]:
+        if trade.account_type.lower() not in ["demo", "real"]:
             return False
         if trade.leverage <= 0 or trade.volume <= 0:
             return False
-        if trade.order_type != "MARKET" and trade.entry_price <= 0:
+        if trade.order_type.upper() != "MARKET" and trade.entry_price < 0:
             return False
-        if trade.order_type == "MARKET" and trade.entry_price > 0:
+        if trade.order_type.upper() == "MARKET" and trade.entry_price > 0:
             return False
         if trade.stop_loss < 0 or trade.take_profit < 0:
             return False
@@ -88,7 +89,67 @@ class TradeManager:
         return True
 
     async def handle_trade_request(self, json_data: dict, ws) -> bool:
-        return await self.trade_repository.handle_trade_request(json_data, ws)
+        symbol = json_data.get("symbol", "")
+        symbol_info = self.mt5_client.get_symbol_info(symbol)
+        if not symbol_info:
+            await self.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
+                                          "FAILED", "", ws, error="Invalid symbol")
+            return False
+
+        volume = json_data.get("volume", 0.0)
+        if volume < symbol_info.volume_min or volume > symbol_info.volume_max:
+            await self.send_trade_response(json_data.get("trade_id", ""), json_data.get("user_id", ""),
+                                          "FAILED", "", ws, error="Invalid volume")
+            return False
+
+        trade = self.trade_factory.create_trade(json_data)
+        if not self.validate_trade(trade):
+            await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Invalid trade parameters")
+            return False
+
+        user_balance = await self.trade_repository.get_user_balance(trade.user_id, trade.account_type, trade.account_name, ws)
+        required_margin = (volume * symbol_info.trade_contract_size *
+                          self.mt5_client.get_symbol_tick(symbol).bid) / trade.leverage
+        if user_balance < required_margin:
+            await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Insufficient user balance")
+            return False
+
+        if not self.mt5_client.check_margin(trade.symbol, volume, trade.trade_type):
+            await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Insufficient account margin")
+            return False
+
+        if trade.order_type == "MARKET":
+            strategy = self.strategies.get("MARKET")
+            if strategy is None:
+                await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="No strategy for MARKET")
+                return False
+            
+            if strategy.execute(trade, self.mt5_client):
+                await self.send_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "", ws)
+                self.save_trade_to_redis(trade)
+                return True
+            else:
+                logger.warning(f"Market order {trade.trade_id} failed direct execution")
+                await self.send_trade_response(trade.trade_id, trade.user_id, "FAILED", "", ws, error="Market execution failed")
+                return False
+
+        match_index = self.trade_repository.find_matching_trade(trade)
+        if match_index >= 0:
+            await self.execute_matched_trades(trade, self.trade_repository.pool[match_index], ws)
+            if trade.trade_id != "":
+                self.trade_repository.add_to_pool(trade)
+                await self.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
+        else:
+            self.trade_repository.add_to_pool(trade)
+            await self.send_trade_response(trade.trade_id, trade.user_id, "PENDING", "", ws)
+            if trade.order_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
+                strategy = self.strategies.get(trade.order_type)
+                if strategy and strategy.execute(trade, self.mt5_client) and trade.trade_id != "":
+                    await self.send_trade_response(trade.trade_id, trade.user_id, "EXECUTED", "", ws)
+                    self.save_trade_to_redis(trade)
+                else:
+                    logger.warning(f"Pending order {trade.trade_id} failed execution, remains PENDING")
+        return True
 
     async def execute_matched_trades(self, trade1: PoolTrade, trade2: PoolTrade, ws):
         match_volume = min(trade1.volume, trade2.volume)
@@ -171,7 +232,6 @@ class TradeManager:
         pending_order_types = ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]
         for trade in [trade1, trade2]:
             if trade.order_type in pending_order_types and trade.ticket != 0:
-
                 success = self.mt5_client.close_order(
                     trade.ticket, trade.symbol, trade.volume,
                     {
@@ -288,12 +348,11 @@ class TradeManager:
                     await self.send_trade_response(
                         trade1.trade_id, trade1.user_id, "FAILED", None, ws,
                         error=message_rem, matched_volume=0, remaining_volume=trade1.volume
-                    )        
- 
+                    )
+
     async def send_trade_response(self, trade_id: str, user_id: str, status: str, matched_trade_id: str, ws, error: str = None, matched_volume: float = 0, remaining_volume: float = 0):
         response = self.trade_factory.create_trade_response(
             trade_id, user_id, status, matched_volume, matched_trade_id, remaining_volume)
-
         if error:
             response.status = error
         try:
@@ -308,8 +367,7 @@ class TradeManager:
     async def handle_balance_request(self, json_data: dict, ws):
         user_id = json_data.get("user_id", "")
         account_type = json_data.get("account_type", "")
-        # balance = self.trade_repository.get_user_balance(user_id, account_type) DEMO
-        balance = 1000
+        balance = await self.trade_repository.get_user_balance(user_id, account_type, trade.account_name, ws)
         response = self.trade_factory.create_balance_response(
             user_id, account_type, balance)
         try:
@@ -328,8 +386,8 @@ class TradeManager:
         success = False
         close_price = 0.0
         close_reason = ""
-        positions = self.mt5_client.get_positions()
         profit = 0.0
+        positions = self.mt5_client.get_positions()
         for position in positions:
             if position.comment == "Trade" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
                 success = self.mt5_client.close_order(
@@ -342,10 +400,11 @@ class TradeManager:
                             profit = deal.profit
                             break
                     self.remove_trade_from_redis(PoolTrade(trade_id=trade_id, user_id=user_id, account_type=account_type))
+                break
         else:
             orders = self.mt5_client.get_orders()
-            success = False 
-            close_reason = "" 
+            success = False
+            close_reason = ""
             for order in orders:
                 if order.comment == "Pending" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
                     success = self.mt5_client.close_order(
@@ -354,18 +413,17 @@ class TradeManager:
                     for trade in self.trade_repository.pool[:]:
                         if trade.ticket == order.ticket and trade.trade_id == trade_id:
                             trade.trade_id = ""
-                            self.trade_repository.pool.remove(trade)
-                            self.trade_repository.pool_size -= 1
+                            self.trade_repository.remove_from_pool(trade)
                             self.remove_trade_from_redis(trade)
+                    break
 
             if not success:
                 for trade in self.trade_repository.pool[:]:
-                    if (trade.trade_id == trade_id and 
-                        trade.user_id == user_id and 
-                        trade.order_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]):
+                    if (trade.trade_id == trade_id and
+                            trade.user_id == user_id and
+                            trade.order_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]):
                         trade.trade_id = ""
-                        self.trade_repository.pool.remove(trade)
-                        self.trade_repository.pool_size -= 1
+                        self.trade_repository.remove_from_pool(trade)
                         self.remove_trade_from_redis(trade)
                         success = True
                         close_reason = "CANCELED"
@@ -373,8 +431,6 @@ class TradeManager:
             if not success:
                 close_reason = "INVALID_TICKET" if close_reason == "" else close_reason
 
-            if not success:
-                close_reason = "INVALID_TICKET" if close_reason == "" else close_reason
         response = self.trade_factory.create_close_trade_response(
             trade_id, user_id, account_type, "SUCCESS" if success else "FAILED 17", close_price, close_reason, profit=profit
         )
@@ -492,6 +548,7 @@ class TradeManager:
                 logger.error(f"Unexpected error in stream_orders for user {user_id}: {str(e)}")
                 await asyncio.sleep(1)
                 continue
+
     async def handle_order_stream_request(self, json_data: dict, ws):
         user_id = json_data.get("user_id", "")
         account_type = json_data.get("account_type", "")
@@ -501,7 +558,7 @@ class TradeManager:
             trade_id = str(position.magic)
             if position.comment == "Trade" and self.trade_repository.is_user_trade(user_id, trade_id, account_type):
                 open_orders.append({
-                    "id": position.magic,
+                    "id": trade_id,
                     "symbol": position.symbol,
                     "trade_type": "BUY" if position.type == mt5.POSITION_TYPE_BUY else "SELL",
                     "order_type": "MARKET",
@@ -524,7 +581,7 @@ class TradeManager:
                     mt5.ORDER_TYPE_SELL_STOP: "SELL_STOP"
                 }.get(order.type, "")
                 open_orders.append({
-                    "id": order.magic,
+                    "id": trade_id,
                     "symbol": order.symbol,
                     "trade_type": order_type,
                     "order_type": order_type,
@@ -580,8 +637,7 @@ class TradeManager:
                 market_price = self.mt5_client.get_symbol_tick(
                     trade.symbol).bid
                 triggered = (trade.order_type == "BUY_STOP" and market_price >= trade.entry_price) or \
-                    (trade.order_type ==
-                     "SELL_STOP" and market_price <= trade.entry_price)
+                    (trade.order_type == "SELL_STOP" and market_price <= trade.entry_price)
                 if triggered:
                     strategy = self.strategies.get("MARKET")
                     if strategy.execute(trade, self.mt5_client):

@@ -15,6 +15,7 @@ class TradeFactory:
             trade_id=json_data.get("trade_id", str(uuid4())),
             user_id=json_data.get("user_id", ""),
             symbol=json_data.get("symbol", ""),
+            account_name=json_data.get("account_name", ""),
             trade_type=json_data.get("trade_type", ""),
             order_type=json_data.get("order_type", ""),
             account_type=json_data.get("account_type", ""),
