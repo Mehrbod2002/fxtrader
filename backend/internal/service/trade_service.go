@@ -154,7 +154,7 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 		return nil, interfaces.TradeResponse{}, errors.New("user not found")
 	}
 
-	account, err := s.accountRepo.GetAccountByName(accountID)
+	account, err := s.accountRepo.GetAccountByName(accountID, userObjID)
 	if err != nil {
 		return nil, interfaces.TradeResponse{}, errors.New("failed to fetch account")
 	}

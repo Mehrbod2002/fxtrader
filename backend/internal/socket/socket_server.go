@@ -14,6 +14,7 @@ import (
 	"github.com/mehrbod2002/fxtrader/interfaces"
 	"github.com/mehrbod2002/fxtrader/internal/models"
 	"github.com/mehrbod2002/fxtrader/internal/repository"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 const (
@@ -119,6 +120,7 @@ func (s *WebSocketServer) handleTradeResponse(msg map[string]interface{}, client
 
 func (s *WebSocketServer) handleBalanceRequest(msg map[string]interface{}, client *Client) error {
 	accountName, ok := msg["account_name"].(string)
+	userID, ok := msg["user_id"].(string)
 	if !ok || accountName == "" {
 		err := fmt.Errorf("missing or invalid 'account_name' in balance request")
 		errorResponse := map[string]interface{}{
@@ -132,7 +134,21 @@ func (s *WebSocketServer) handleBalanceRequest(msg map[string]interface{}, clien
 		return err
 	}
 
-	account, err := s.accountRepo.GetAccountByName(accountName)
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		errorResponse := map[string]interface{}{
+			"type":      "error",
+			"error":     err.Error(),
+			"timestamp": time.Now().Unix(),
+		}
+		if sendErr := s.sendJSONMessage(client, errorResponse); sendErr != nil {
+			log.Printf("Failed to send error response to client %s: %v", client.clientID, sendErr)
+		}
+
+		return err
+	}
+
+	account, err := s.accountRepo.GetAccountByName(accountName, userObjID)
 	if err != nil {
 		errorResponse := map[string]interface{}{
 			"type":      "error",

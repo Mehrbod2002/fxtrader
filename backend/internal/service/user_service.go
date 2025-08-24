@@ -24,6 +24,7 @@ type UserService interface {
 	GetUserByReferralCode(code string) (*models.User, error)
 	GetUsersReferredBy(code string, page, limit int64) ([]*models.User, int64, error)
 	GetAllReferrals(page, limit int64) ([]*models.User, int64, error)
+	ActiveUser(userID primitive.ObjectID, active bool) error
 }
 
 type AccountService interface {
@@ -84,6 +85,10 @@ func (s *userService) SignupUser(user *models.User) error {
 		user.Bonus = 0.0
 	}
 	return s.userRepo.SaveUser(user)
+}
+
+func (s *userService) ActiveUser(userID primitive.ObjectID, active bool) error {
+	return s.userRepo.ActiveUser(userID, active)
 }
 
 func (s *userService) EditUser(user *models.User) error {
@@ -171,7 +176,7 @@ func (s *transferService) TransferBalance(userID primitive.ObjectID, sourceID, d
 			}
 			sourceBalance = &sourceUser.Balance
 		} else {
-			sourceAccount, err = s.accountRepo.GetAccountByName(sourceID)
+			sourceAccount, err = s.accountRepo.GetAccountByName(sourceID, userID)
 			if err != nil || sourceAccount == nil {
 				return nil, fmt.Errorf("source account not found")
 			}
@@ -196,7 +201,7 @@ func (s *transferService) TransferBalance(userID primitive.ObjectID, sourceID, d
 			}
 			destBalance = &destUser.Balance
 		} else {
-			destAccount, err = s.accountRepo.GetAccountByName(destID)
+			destAccount, err = s.accountRepo.GetAccountByName(destID, userID)
 			if err != nil || destAccount == nil {
 				return nil, fmt.Errorf("destination account not found")
 			}

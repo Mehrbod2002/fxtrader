@@ -26,6 +26,7 @@ type UserRepository interface {
 	GetUserByReferralCode(code string) (*models.User, error)
 	GetUsersReferredBy(code string, page, limit int64) ([]*models.User, int64, error)
 	GetAllReferrals(page, limit int64) ([]*models.User, int64, error)
+	ActiveUser(userID primitive.ObjectID, active bool) error
 }
 
 type MongoUserRepository struct {
@@ -92,6 +93,18 @@ func (r *MongoUserRepository) EditUser(user *models.User) error {
 		return fmt.Errorf("no user found with ID: %s", user.ID.Hex())
 	}
 	return nil
+}
+
+func (r *MongoUserRepository) ActiveUser(userID primitive.ObjectID, active bool) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := r.collection.UpdateOne(
+		ctx,
+		bson.M{"_id": userID},
+		bson.M{"$set": bson.M{"is_active": active}},
+	)
+	return err
 }
 
 func (r *MongoUserRepository) UpdateUser(user *models.User) error {
@@ -252,7 +265,7 @@ type AccountRepository interface {
 	Collection() *mongo.Collection
 	SaveAccount(account *models.Account) error
 	GetAccountByID(id primitive.ObjectID) (*models.Account, error)
-	GetAccountByName(name string) (*models.Account, error)
+	GetAccountByName(name string, userID primitive.ObjectID) (*models.Account, error)
 	GetAccountsByUserID(userID primitive.ObjectID) ([]*models.Account, error)
 	DeleteAccount(accountID, userID primitive.ObjectID) error
 	UpdateAccount(account *models.Account) error
@@ -309,12 +322,12 @@ func (r *MongoAccountRepository) GetAccountByID(id primitive.ObjectID) (*models.
 	return &account, err
 }
 
-func (r *MongoAccountRepository) GetAccountByName(name string) (*models.Account, error) {
+func (r *MongoAccountRepository) GetAccountByName(name string, userID primitive.ObjectID) (*models.Account, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	var account models.Account
-	err := r.collection.FindOne(ctx, bson.M{"account_name": name}).Decode(&account)
+	err := r.collection.FindOne(ctx, bson.M{"account_name": name, "user_id": userID}).Decode(&account)
 	if err == mongo.ErrNoDocuments {
 		return nil, nil
 	}

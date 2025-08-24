@@ -517,7 +517,7 @@ func (h *UserHandler) TransferBalance(c *gin.Context) {
 		}
 		sourceBal = user.Balance
 	} else {
-		acc, err := h.accountRepository.GetAccountByName(req.SourceID)
+		acc, err := h.accountRepository.GetAccountByName(req.SourceID, userObjID)
 		if err != nil || acc == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated source balance"})
 			return
@@ -534,7 +534,7 @@ func (h *UserHandler) TransferBalance(c *gin.Context) {
 		}
 		destBal = user.Balance
 	} else {
-		acc, err := h.accountRepository.GetAccountByName(req.DestID)
+		acc, err := h.accountRepository.GetAccountByName(req.DestID, userObjID)
 		if err != nil || acc == nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated destination balance"})
 			return

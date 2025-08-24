@@ -63,8 +63,7 @@ func (h *AdminHandler) UpdateUserActivation(c *gin.Context) {
 		return
 	}
 
-	user.IsActive = req.IsActive
-	err = h.userService.SignupUser(user)
+	err = h.userService.ActiveUser(user.ID, req.IsActive)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user status"})
 		return
