@@ -124,13 +124,14 @@ class TradeManager:
                 await self.send_trade_response(trade.trade_id, trade.trade_code, trade.user_id, "FAILED", "", ws, error="No strategy for MARKET")
                 return False
             
-            if strategy.execute(trade, self.mt5_client):
-                await self.send_trade_response(trade.trade_id, trade.trade_code, trade.user_id, "EXECUTED", "", ws)
+            success, status = strategy.execute(trade, self.mt5_client)
+            if success:
+                await self.send_trade_response(trade.trade_id, status, trade.user_id, "EXECUTED", "", ws)
                 self.save_trade_to_redis(trade)
                 return True
             else:
                 logger.warning(f"Market order {trade.trade_id} failed direct execution")
-                await self.send_trade_response(trade.trade_id, trade.trade_code, trade.user_id, "FAILED", "", ws, error="Market execution failed")
+                await self.send_trade_response(trade.trade_id, status, trade.user_id, "FAILED", "", ws, error="Market execution failed")
                 return False
 
         match_index = self.trade_repository.find_matching_trade(trade)
@@ -144,21 +145,22 @@ class TradeManager:
             await self.send_trade_response(trade.trade_id, trade.trade_code, trade.user_id, "PENDING", "", ws)
             if trade.order_type in ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]:
                 strategy = self.strategies.get(trade.order_type)
-                if strategy and strategy.execute(trade, self.mt5_client) and trade.trade_id != "":
-                    await self.send_trade_response(trade.trade_id, trade.trade_code, trade.user_id, "EXECUTED", "", ws)
+                success, status = strategy.execute(trade, self.mt5_client)
+                if strategy and success and trade.trade_id != "":
+                    await self.send_trade_response(trade.trade_id, status, trade.user_id, "EXECUTED", "", ws)
                     self.save_trade_to_redis(trade)
                 else:
                     logger.warning(f"Pending order {trade.trade_id} failed execution, remains PENDING")
         return True
 
-    async def execute_matched_trades(self, trade1: PoolTrade, trade2: PoolTrade, ws):
+    async def execute_matched_trades(self, trade1: PoolTrade, trade2: PoolTrade, ws) -> tuple[bool, int]:
         match_volume = min(trade1.volume, trade2.volume)
 
         symbol_info = self.mt5_client.get_symbol_info(trade1.symbol)
         if not symbol_info:
             await self.send_trade_response(trade1.trade_id, trade1.trade_code, trade1.user_id, "FAILED", trade2.trade_id, ws, error="Failed to get symbol info")
             await self.send_trade_response(trade2.trade_id, trade2.trade_code, trade2.user_id, "FAILED", trade1.trade_id, ws, error="Failed to get symbol info")
-            return
+            return False, 10013
 
         tick_size = getattr(symbol_info, 'trade_tick_size', 0.1)
         try:
@@ -174,16 +176,16 @@ class TradeManager:
 
         if not self.mt5_client.check_margin(trade1.symbol, match_volume, trade1.trade_type):
             await self.send_trade_response(trade1.trade_id, trade1.trade_code, trade1.user_id, "FAILED", trade2.trade_id, ws, error="Insufficient margin for trade1")
-            return
+            return False, 10013
         if not self.mt5_client.check_margin(trade2.symbol, match_volume, trade2.trade_type):
             await self.send_trade_response(trade2.trade_id, trade2.trade_code, trade2.user_id, "FAILED", trade1.trade_id, ws, error="Insufficient margin for trade2")
-            return
+            return False, 10013
 
         if trade1.order_type == "MARKET" or trade2.order_type == "MARKET":
             if not tick:
                 await self.send_trade_response(trade1.trade_id, trade1.trade_code, trade1.user_id, "FAILED", trade2.trade_id, ws, error="Failed to get market price")
                 await self.send_trade_response(trade2.trade_id, trade2.trade_code, trade2.user_id, "FAILED", trade1.trade_id, ws, error="Failed to get market price")
-                return
+                return False, 10013
             match_price = round_price(tick.bid if trade1.trade_type == "SELL" else tick.ask)
         else:
             if trade1.order_type == "BUY_LIMIT" and trade2.order_type == "SELL_LIMIT":
@@ -219,15 +221,15 @@ class TradeManager:
         except ValueError as e:
             await self.send_trade_response(trade1.trade_id, trade1.trade_code, trade1.user_id, "FAILED", trade2.trade_id, ws, error=str(e))
             await self.send_trade_response(trade2.trade_id, trade1.trade_code, trade2.user_id, "FAILED", trade1.trade_id, ws, error=str(e))
-            return
+            return False, 10013
 
         def generate_magic(trade_id: str) -> int:
             hash_object = hashlib.md5(trade_id.encode())
             hash_int = int(hash_object.hexdigest(), 16)
             return int(hash_int % 0xFFFFFFFF)
 
-        magic1 = generate_magic(trade1.trade_id)
-        magic2 = generate_magic(trade2.trade_id)
+        magic1 = int(generate_magic(trade1.trade_id))
+        magic2 = int(generate_magic(trade2.trade_id))
 
         pending_order_types = ["BUY_LIMIT", "SELL_LIMIT", "BUY_STOP", "SELL_STOP"]
         for trade in [trade1, trade2]:
@@ -245,7 +247,7 @@ class TradeManager:
                     trade.ticket = 0
                 else:
                     await self.send_trade_response(trade.trade_id, trade.trade_code, trade.user_id, "FAILED", "", ws, error="Failed to close pending order")
-                    return
+                    return False, 10013
 
         request1 = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -258,7 +260,7 @@ class TradeManager:
             "comment": "TradeMatch",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_mode1,
-            "magic": magic1
+            "magic": int(magic1)
         }
         request2 = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -271,7 +273,7 @@ class TradeManager:
             "comment": "TradeMatch",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": filling_mode2,
-            "magic": magic2
+            "magic": int(magic2)
         }
 
         success = True
@@ -282,7 +284,7 @@ class TradeManager:
         if result1 and result1.retcode == 10009:
             ticket1 = result1.order
             trade1.ticket = ticket1
-            trade1.magic = magic1
+            trade1.magic = int(magic1)
         else:
             success = False
             error = message1
@@ -291,7 +293,7 @@ class TradeManager:
         if result2 and result2.retcode == 10009:
             ticket2 = result2.order
             trade2.ticket = ticket2
-            trade2.magic = magic2
+            trade2.magic = int(magic2)
         else:
             success = False
             error = message2 if not error else error
@@ -335,7 +337,7 @@ class TradeManager:
                     "comment": "TradeMatch_Remaining",
                     "type_time": mt5.ORDER_TIME_GTC,
                     "type_filling": filling_mode1,
-                    "magic": generate_magic(trade1.trade_id + "_remaining")
+                    "magic": int(generate_magic(trade1.trade_id + "_remaining"))
                 }
                 message_rem, result_rem = self.mt5_client.order_send(remaining_request)
                 if result_rem and result_rem.retcode == 10009:

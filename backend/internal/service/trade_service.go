@@ -318,7 +318,7 @@ func (s *tradeService) PlaceTrade(userID, accountID, symbol, accountType string,
 			_ = s.tradeRepo.SaveTrade(trade)
 			account.Balance += requiredMargin + symbolObj.CommissionFee
 			s.accountRepo.UpdateAccount(account)
-			return nil, interfaces.TradeResponse{}, fmt.Errorf("trade failed with status: %s", constants.TradeRetcodes[tradeResponse.TradeRetcode])
+			return nil, interfaces.TradeResponse{}, fmt.Errorf("%s", constants.TradeRetcodes[tradeResponse.TradeRetcode]["fa"])
 		}
 
 		err = s.tradeRepo.SaveTrade(trade)

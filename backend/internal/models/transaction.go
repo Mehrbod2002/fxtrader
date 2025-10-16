@@ -6,6 +6,14 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+type TransactionStatus string
+
+const (
+	TransactionStatusPending  TransactionStatus = "PENDING"
+	TransactionStatusApproved TransactionStatus = "APPROVED"
+	TransactionStatusRejected TransactionStatus = "REJECTED"
+)
+
 type TransactionType string
 
 const (
@@ -20,23 +28,17 @@ const (
 	PaymentMethodDepositReceipt PaymentMethod = "DEPOSIT_RECEIPT"
 )
 
-type TransactionStatus string
-
-const (
-	TransactionStatusPending  TransactionStatus = "PENDING"
-	TransactionStatusApproved TransactionStatus = "APPROVED"
-	TransactionStatusRejected TransactionStatus = "REJECTED"
-)
-
 type Transaction struct {
-	ID              primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
-	UserID          string             `json:"user_id" bson:"user_id"`
-	TransactionType TransactionType    `json:"transaction_type" bson:"transaction_type"`
-	PaymentMethod   PaymentMethod      `json:"payment_method" bson:"payment_method"`
-	Amount          float64            `json:"amount" bson:"amount"`
-	Status          TransactionStatus  `json:"status" bson:"status"`
-	ReceiptImage    string             `json:"receipt_image,omitempty" bson:"receipt_image,omitempty"`
-	RequestTime     time.Time          `json:"request_time" bson:"request_time"`
-	ResponseTime    *time.Time         `json:"response_time,omitempty" bson:"response_time,omitempty"`
-	AdminNote       string             `json:"admin_note,omitempty" bson:"admin_note,omitempty"`
+	ID              primitive.ObjectID `bson:"_id" json:"_id"`
+	UserID          string             `bson:"user_id" json:"user_id"`
+	TelegramID      string             `bson:"telegram_id" json:"telegram_id"`
+	TransactionType TransactionType    `bson:"transaction_type" json:"transaction_type"`
+	PaymentMethod   PaymentMethod      `bson:"payment_method" json:"payment_method"`
+	Amount          float64            `bson:"amount" json:"amount"`
+	ReceiptImage    string             `bson:"receipt_image,omitempty" json:"receipt_image"`
+	Status          TransactionStatus  `bson:"status" json:"status"`
+	RequestTime     time.Time          `bson:"request_time" json:"request_time"`
+	ResponseTime    *time.Time         `bson:"response_time,omitempty" json:"response_time"`
+	Reason          string             `bson:"reason,omitempty" json:"reason"`
+	AdminComment    string             `bson:"admin_comment,omitempty" json:"admin_comment"`
 }

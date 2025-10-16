@@ -37,6 +37,7 @@ func SetupRoutes(
 	accountService service.AccountService,
 	transferService service.TransferService,
 	accountRepository repository.AccountRepository,
+	userRepository repository.UserRepository,
 ) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "healthy"})
@@ -57,7 +58,7 @@ func SetupRoutes(
 	overviewHandler := NewOverviewHandler(userService, tradeService, transactionService, symbolService, logService)
 	ruleHandler := NewRuleHandler(ruleService)
 	tradeHandler := NewTradeHandler(tradeService, logService, hub)
-	transactionHandler := NewTransactionHandler(transactionService, logService)
+	transactionHandler := NewTransactionHandler(transactionService, logService, userRepository)
 	adminHandler := NewAdminHandler(adminRepo, cfg, userService)
 	alertHandler := NewAlertHandler(alertService, logService)
 	copyTradeHandler := NewCopyTradeHandler(copyTradeService, logService)
@@ -150,7 +151,8 @@ func SetupRoutes(
 			admin.GET("/transactions/id/:user_id", transactionHandler.GetTransactionByID)
 			admin.GET("/transactions/user/:user_id", transactionHandler.GetTransactionsByUser)
 			admin.GET("/transactions/:id", transactionHandler.GetTransactionByID)
-			admin.PUT("/transactions/:id", transactionHandler.ReviewTransaction)
+			admin.PUT("/transactions/:id/approve", transactionHandler.ApproveTransaction)
+			admin.PUT("/transactions/:id/deny", transactionHandler.DenyTransaction)
 			admin.POST("/leader-requests/:id/approve", leaderRequestHandler.ApproveLeaderRequest)
 			admin.POST("/leader-requests/:id/deny", leaderRequestHandler.DenyLeaderRequest)
 			admin.GET("/leader-requests", leaderRequestHandler.GetPendingLeaderRequests)

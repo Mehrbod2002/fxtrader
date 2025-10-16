@@ -68,7 +68,7 @@ func main() {
 	transferService := service.NewTransferService(userRepo, accountRepo)
 	symbolService := service.NewSymbolService(symbolRepo)
 	ruleService := service.NewRuleService(ruleRepo)
-	transactionService := service.NewTransactionService(transactionRepo, logService)
+	transactionService := service.NewTransactionService(transactionRepo, logService, userRepo)
 	alertService := service.NewAlertService(alertRepo, symbolRepo, logService)
 	socketServer, err := socket.NewWebSocketServer(cfg.ListenPort, accountRepo)
 	if err != nil {
@@ -111,7 +111,7 @@ func main() {
 	r.Use(gin.Recovery())
 	r.Use(middleware.LoggerMiddleware())
 
-	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, hub, leaderRequestService, accountService, transferService, accountRepo)
+	api.SetupRoutes(r, cfg, alertService, copyTradeService, priceService, adminRepo, userService, symbolService, logService, ruleService, tradeService, transactionService, wsHandler, hub, leaderRequestService, accountService, transferService, accountRepo, userRepo)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Address, cfg.Port)
 	log.Printf("Starting server on http://%s", addr)

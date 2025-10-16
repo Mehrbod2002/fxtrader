@@ -184,7 +184,7 @@ func (h *LeaderRequestHandler) GetPendingLeaderRequests(c *gin.Context) {
 // @Tags CopyTrading
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {array} models.UserAccount
+// @Success 200 {array} models.User
 // @Failure 500 {object} map[string]string "Failed to retrieve leaders"
 // @Router /copy-trade-leaders [get]
 func (h *LeaderRequestHandler) GetApprovedLeaders(c *gin.Context) {

@@ -50,6 +50,7 @@ definitions:
       account_name:
         type: string
       account_type:
+        description: demo or real
         type: string
     required:
     - account_name
@@ -201,16 +202,13 @@ definitions:
     type: object
   api.TransactionReviewRequest:
     properties:
-      admin_note:
+      admin_comment:
         type: string
-      status:
-        allOf:
-        - $ref: '#/definitions/models.TransactionStatus'
-        enum:
-        - APPROVED
-        - REJECTED
+      reason:
+        type: string
     required:
-    - status
+    - admin_comment
+    - reason
     type: object
   api.TransferRequest:
     properties:
@@ -218,12 +216,18 @@ definitions:
         type: number
       dest_id:
         type: string
+      dest_type:
+        type: string
       source_id:
+        type: string
+      source_type:
         type: string
     required:
     - amount
     - dest_id
+    - dest_type
     - source_id
+    - source_type
     type: object
   api.UserActivationRequest:
     properties:
@@ -249,8 +253,20 @@ definitions:
       username:
         type: string
     type: object
+  api.WalletRequest:
+    properties:
+      account_id:
+        type: string
+      wallet_id:
+        type: string
+    required:
+    - account_id
+    - wallet_id
+    type: object
   interfaces.TradeResponse:
     properties:
+      account_id:
+        type: string
       account_type:
         type: string
       close_price:
@@ -267,6 +283,8 @@ definitions:
         type: number
       trade_id:
         type: string
+      trade_retcode:
+        type: integer
       user_id:
         type: string
     type: object
@@ -332,6 +350,8 @@ definitions:
     properties:
       _id:
         type: string
+      account_type:
+        type: string
       allocated_amount:
         type: number
       created_at:
@@ -347,6 +367,14 @@ definitions:
       status:
         $ref: '#/definitions/models.ActivceStatus'
     type: object
+  models.ExecutionType:
+    enum:
+    - platform
+    - user-to-user
+    type: string
+    x-enum-varnames:
+    - ExecutionTypePlatform
+    - ExecutionTypeUserToUser
   models.LeaderRequest:
     properties:
       admin_reason:
@@ -451,43 +479,45 @@ definitions:
     type: object
   models.TradeHistory:
     properties:
-      accountID:
+      _id:
         type: string
-      accountType:
+      Status:
         type: string
-      closePrice:
+      account_id:
+        type: string
+      account_type:
+        type: string
+      close_price:
         type: number
-      closeReason:
+      close_reason:
         type: string
-      closeTime:
+      close_time:
         type: string
-      entryPrice:
+      entry_price:
         type: number
+      execution_type:
+        $ref: '#/definitions/models.ExecutionType'
       expiration:
-        type: string
-      id:
         type: string
       leverage:
         type: integer
-      matchedTradeID:
+      matched_trade_id:
         type: string
-      openTime:
+      open_time:
         type: string
-      orderType:
+      order_type:
         type: string
       profit:
         type: number
-      status:
-        type: string
-      stopLoss:
+      stop_loss:
         type: number
       symbol:
         type: string
-      takeProfit:
+      take_profit:
         type: number
-      tradeType:
+      trade_type:
         $ref: '#/definitions/models.TradeType'
-      userID:
+      user_id:
         type: string
       volume:
         type: number
@@ -513,12 +543,14 @@ definitions:
     properties:
       _id:
         type: string
-      admin_note:
+      admin_comment:
         type: string
       amount:
         type: number
       payment_method:
         $ref: '#/definitions/models.PaymentMethod'
+      reason:
+        type: string
       receipt_image:
         type: string
       request_time:
@@ -527,6 +559,8 @@ definitions:
         type: string
       status:
         $ref: '#/definitions/models.TransactionStatus'
+      telegram_id:
+        type: string
       transaction_type:
         $ref: '#/definitions/models.TransactionType'
       user_id:
@@ -550,12 +584,8 @@ definitions:
     x-enum-varnames:
     - TransactionTypeDeposit
     - TransactionTypeWithdrawal
-  models.UserAccount:
+  models.User:
     properties:
-      _id:
-        type: string
-      account_name:
-        type: string
       account_type:
         type: string
       account_types:
@@ -563,6 +593,7 @@ definitions:
           type: string
         type: array
       balance:
+        description: Main account balance
         type: number
       birthday:
         type: string
@@ -572,9 +603,9 @@ definitions:
         type: string
       citizenship:
         type: string
-      demo_mt5_balance:
-        type: number
       full_name:
+        type: string
+      id:
         type: string
       is_active:
         type: boolean
@@ -588,8 +619,6 @@ definitions:
         type: string
       phone_number:
         type: string
-      real_mt5_balance:
-        type: number
       referral_code:
         type: string
       referred_by:
@@ -620,7 +649,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/models.UserAccount'
+              $ref: '#/definitions/models.User'
             type: array
         "401":
           description: Unauthorized
@@ -864,8 +893,7 @@ paths:
       - Logs
   /admin/logs/user/{user_id}:
     get:
-      description: Retrieves a paginated list of logs associated with a specific user
-        ID (admin only)
+      description: Retrieves a paginated list of logs associated
       parameters:
       - description: User ID
         in: path
@@ -1295,19 +1323,19 @@ paths:
       summary: Get all transactions
       tags:
       - Transactions
-  /admin/transactions/{id}:
+  /admin/transactions/{id}/approve:
     put:
       consumes:
       - application/json
-      description: Approves or rejects a transaction with an optional note (admin
-        only)
+      description: Approves a transaction with a reason and admin comment, updating
+        user balance (admin only)
       parameters:
       - description: Transaction ID
         in: path
         name: id
         required: true
         type: string
-      - description: Review data
+      - description: Approval data
         in: body
         name: review
         required: true
@@ -1317,7 +1345,7 @@ paths:
       - application/json
       responses:
         "200":
-          description: Transaction reviewed
+          description: Transaction approved
           schema:
             additionalProperties:
               type: string
@@ -1335,14 +1363,63 @@ paths:
               type: string
             type: object
         "500":
-          description: Failed to review transaction
+          description: Failed to approve transaction
           schema:
             additionalProperties:
               type: string
             type: object
       security:
       - BasicAuth: []
-      summary: Review a transaction
+      summary: Approve a transaction
+      tags:
+      - Transactions
+  /admin/transactions/{id}/deny:
+    put:
+      consumes:
+      - application/json
+      description: Rejects a transaction with a reason and admin comment (admin only)
+      parameters:
+      - description: Transaction ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Denial data
+        in: body
+        name: review
+        required: true
+        schema:
+          $ref: '#/definitions/api.TransactionReviewRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Transaction denied
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Failed to deny transaction
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BasicAuth: []
+      summary: Deny a transaction
       tags:
       - Transactions
   /admin/transactions/user/{user_id}:
@@ -1689,7 +1766,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/models.UserAccount'
+              $ref: '#/definitions/models.User'
             type: array
         "500":
           description: Failed to retrieve leaders
@@ -2377,7 +2454,7 @@ paths:
               type: string
             type: object
       security:
-      - Bearer: []
+      - BearerAuth: []
       summary: Modify a pending trade
       tags:
       - Trades
@@ -2491,7 +2568,7 @@ paths:
           description: OK
           schema:
             items:
-              $ref: '#/definitions/models.UserAccount'
+              $ref: '#/definitions/models.User'
             type: array
         "500":
           description: Server error
@@ -2517,7 +2594,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.UserAccount'
+            $ref: '#/definitions/models.User'
         "400":
           description: Invalid user ID
           schema:
@@ -2544,7 +2621,7 @@ paths:
         name: user
         required: true
         schema:
-          $ref: '#/definitions/models.UserAccount'
+          $ref: '#/definitions/models.User'
       produces:
       - application/json
       responses:
@@ -2630,7 +2707,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.UserAccount'
+            $ref: '#/definitions/models.User'
         "400":
           description: Bad request
           schema:
@@ -2657,7 +2734,7 @@ paths:
         name: user
         required: true
         schema:
-          $ref: '#/definitions/models.UserAccount'
+          $ref: '#/definitions/models.User'
       produces:
       - application/json
       responses:
@@ -2687,4 +2764,55 @@ paths:
       summary: Sign up a new user
       tags:
       - Users
+  /wallets/register:
+    post:
+      consumes:
+      - application/json
+      description: Allows an authenticated user to register a wallet for a specific
+        account
+      parameters:
+      - description: Wallet details
+        in: body
+        name: wallet
+        required: true
+        schema:
+          $ref: '#/definitions/api.WalletRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Wallet registered
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid JSON or parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Invalid account
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Register a wallet for trading
+      tags:
+      - Trades
 swagger: "2.0"

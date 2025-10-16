@@ -140,7 +140,7 @@ class MT5Client:
         except Exception as e:
             logger.error(f"Error during shutdown: {str(e)}")
 
-    def execute_market_trade(self, trade: PoolTrade, price: float) -> bool:
+    def execute_market_trade(self, trade: PoolTrade, price: float) -> tuple[bool, int]:
         try:
             order_type = mt5.ORDER_TYPE_BUY if trade.trade_type == "BUY" else mt5.ORDER_TYPE_SELL
             filling_mode = self.get_symbol_filling_mode(trade.symbol)
@@ -161,13 +161,13 @@ class MT5Client:
             result = mt5.order_send(request)
             if result.retcode == 10009:
                 logger.info(f"Market trade executed: {result}")
-                return True
+                return True, 10009
             else:
                 logger.error(f"Market trade failed: {result}")
-                return False
+                return False, result.retcode
         except Exception as e:
             logger.error(f"Exception in execute_market_trade: {e}")
-            return False
+            return False, 10013
 
     def place_pending_order(self, trade: PoolTrade) -> bool:
         try:

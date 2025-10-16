@@ -4,6 +4,7 @@ from config.settings import settings
 from services.mt5_client import MT5Client
 from typing import List
 from datetime import datetime
+from utils.logger import logger
 
 
 class TradeFactory:
@@ -11,8 +12,16 @@ class TradeFactory:
         self.mt5_client = mt5_client
 
     def create_trade(self, json_data: dict) -> PoolTrade:
+        trade_code = json_data.get("trade_code", 0)
+        try:
+            trade_code = int(trade_code)
+        except (ValueError, TypeError):
+            trade_code = 0
+            logger.warning(f"Invalid trade_code in json_data: {json_data.get('trade_code')}. Using default value 0.")
+
         return PoolTrade(
             trade_id=json_data.get("trade_id", str(uuid4())),
+            trade_code=trade_code,
             user_id=json_data.get("user_id", ""),
             symbol=json_data.get("symbol", ""),
             account_name=json_data.get("account_name", ""),

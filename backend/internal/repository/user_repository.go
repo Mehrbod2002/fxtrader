@@ -26,6 +26,8 @@ type UserRepository interface {
 	GetUserByReferralCode(code string) (*models.User, error)
 	GetUsersReferredBy(code string, page, limit int64) ([]*models.User, int64, error)
 	GetAllReferrals(page, limit int64) ([]*models.User, int64, error)
+	AddBalance(userID primitive.ObjectID, amount float64) error
+	SubtractBalance(userID primitive.ObjectID, amount float64) error
 	ActiveUser(userID primitive.ObjectID, active bool) error
 }
 
@@ -375,4 +377,63 @@ func (r *MongoAccountRepository) UpdateAccount(account *models.Account) error {
 	update := bson.M{"$set": account}
 	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": account.ID}, update)
 	return err
+}
+
+func (r *MongoUserRepository) AddBalance(userID primitive.ObjectID, amount float64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if amount <= 0 {
+		return fmt.Errorf("amount must be positive")
+	}
+
+	update := bson.M{
+		"$inc": bson.M{"balance": amount},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": userID}, update)
+	if err != nil {
+		return fmt.Errorf("failed to add balance: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("no user found with ID: %s", userID.Hex())
+	}
+
+	return nil
+}
+
+func (r *MongoUserRepository) SubtractBalance(userID primitive.ObjectID, amount float64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if amount <= 0 {
+		return fmt.Errorf("amount must be positive")
+	}
+
+	var user models.User
+	err := r.collection.FindOne(ctx, bson.M{"_id": userID}).Decode(&user)
+	if err == mongo.ErrNoDocuments {
+		return fmt.Errorf("no user found with ID: %s", userID.Hex())
+	}
+	if err != nil {
+		return fmt.Errorf("failed to fetch user: %w", err)
+	}
+
+	if user.Balance < amount {
+		return fmt.Errorf("insufficient balance: current balance %f, requested withdrawal %f", user.Balance, amount)
+	}
+
+	update := bson.M{
+		"$inc": bson.M{"balance": -amount},
+	}
+
+	result, err := r.collection.UpdateOne(ctx, bson.M{"_id": userID}, update)
+	if err != nil {
+		return fmt.Errorf("failed to subtract balance: %w", err)
+	}
+	if result.MatchedCount == 0 {
+		return fmt.Errorf("no user found with ID: %s", userID.Hex())
+	}
+
+	return nil
 }

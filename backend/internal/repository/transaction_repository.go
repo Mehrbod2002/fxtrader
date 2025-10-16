@@ -91,7 +91,8 @@ func (r *MongoTransactionRepository) UpdateTransaction(id primitive.ObjectID, tr
 		"$set": bson.M{
 			"status":        transaction.Status,
 			"response_time": transaction.ResponseTime,
-			"admin_note":    transaction.AdminNote,
+			"reason":        transaction.Reason,
+			"admin_comment": transaction.AdminComment,
 		},
 	}
 	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": id}, update)
