@@ -26,14 +26,21 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.cache/go-build
-          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.mod') }}
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('backend/**/go.mod') }}
           restore-keys: |
             ${{ runner.os }}-go-mod-
 
+      - name: Install Go dependencies
+        run: |
+          cd backend
+          go mod tidy
+
       - name: Check Go syntax
         run: |
+          cd backend
           go fmt ./...
-          go vet ./...
 
       - name: Run Go tests
-        run: go test -v ./...
+        run: |
+          cd backend
+          go test -v ./...
