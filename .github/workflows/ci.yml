@@ -1,0 +1,39 @@
+name: Go CI Workflow
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/*"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: "1.18"
+
+      - name: Cache Go modules
+        uses: actions/cache@v2
+        with:
+          path: ~/.cache/go-build
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.mod') }}
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+
+      - name: Check Go syntax
+        run: |
+          go fmt ./...  # Check formatting of Go code
+          go vet ./...  # Check Go code for any potential issues
+
+      - name: Run Go tests
+        run: go test -v ./...
