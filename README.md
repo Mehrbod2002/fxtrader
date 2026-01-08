@@ -24,7 +24,7 @@ FXTrader is a multi-component forex trading platform that combines a Go backend 
 
 ## Features
 
-- User signup/login with JWT-based authentication and optional admin login for elevated actions.
+- User signup/login with JWT based authentication and optional admin login for elevated actions.
 - Account creation, balance transfers, and referral tracking.
 - Trade placement, modification, closing, and streaming, plus transaction approval/denial workflows for deposits and withdrawals.
 - Symbol catalog management and rule configuration for risk controls.
