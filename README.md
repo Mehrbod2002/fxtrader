@@ -89,7 +89,7 @@ The backend listens on `0.0.0.0:7000` by default and connects to the bundled Mon
 
 ### With Go locally
 
-1. Create a `.env` file in `backend/` (optional). Defaults are applied when variables are absent.
+1. Create a `.env` file in `backend/`. Defaults are applied when variables are absent.
 2. Set environment variables as needed:
    - `ADDRESS` (default `0.0.0.0`)
    - `PORT` (default `7000`)
