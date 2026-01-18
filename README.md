@@ -4,7 +4,7 @@ FXTrader is a multi-component forex trading platform that combines a Go backend 
 
 ## Project summary
 
-- Goal: provide an end-to-end trading stack that can back a Profitilo listing or a standalone deployment.
+- Pxrovide an end-to-end trading stack that can back a Profitilo listing or a standalone deployment.
 - Tech stack: Go (Gin) for the REST/WebSocket API, MongoDB for persistence, Python for the MetaTrader bridge, and MQL5 for on-terminal price publishing.
 - Deliverables: authenticated trading workflows, admin management flows, streaming ticks and trades, and deployment scaffolding for local or containerized environments.
 
