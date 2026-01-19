@@ -35,7 +35,7 @@ FXTrader is a multi-component forex trading platform that combines a Go backend 
 ## Quick start
 
 1. Clone the repo and ensure Docker and Docker Compose are available.
-2. Start the backend (includes MongoDB):
+2. Start the backend and database:
 
    ```bash
    cd backend
