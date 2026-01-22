@@ -52,7 +52,7 @@ FXTrader is a multi-component forex trading platform that combines a Go backend 
    python main.py
    ```
 
-4. Open Swagger at `domain:7000/swagger/` to explore and test API routes.
+4. Open Swagger at `localhost:7000/swagger/` to explore and test API routes.
 
 ## Configuration reference
 
