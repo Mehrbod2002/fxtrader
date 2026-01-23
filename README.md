@@ -1,6 +1,6 @@
 # FXTrader
 
-FXTrader is a multi-component forex trading platform that combines a Go backend API, a Python MetaTrader 5 bridge, and an MQL5 expert advisor for publishing market data. The system supports account management, trade execution, copy-trading, alerts, and WebSocket based streaming so it can power web or mobile trading clients.
+FXTrader is a multi component forex trading platform that combines a Go backend API, a Python MetaTrader 5 bridge, and an MQL5 expert advisor for publishing market data. The system supports account management, trade execution, copy-trading, alerts, and WebSocket based streaming so it can power web or mobile trading clients.
 
 ## Project summary
 
