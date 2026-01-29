@@ -60,7 +60,7 @@ FXTrader is a multi component forex trading platform that combines a Go backend 
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `ADDRESS` / `PORT` | HTTP bind address/port | `0.0.0.0` / `7000` |
+| `ADDRESS` / `PORT` | HTTP bind address/port | `127.0.0.1` / `7000` |
 | `MONGO_URI` | MongoDB connection string | `mongodb://admin:secret@mongodb:27017/?authSource=admin` |
 | `ADMIN_USER` / `ADMIN_PASS` | Seeded admin credentials | `admin` / `admin` |
 | `JWT_SECRET` | Token signing secret | `secret` |
