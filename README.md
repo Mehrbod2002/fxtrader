@@ -10,7 +10,7 @@ FXTrader is a multi component forex trading platform that combines a Go backend 
 
 ## Components
 
-- **Go backend (`backend/`)**
+- **Go backend - BACK-END**
   - REST API built with Gin with public user flows, authenticated trading endpoints, and admin-only management routes.
   - MongoDB persistence for users, accounts, symbols, trades, alerts, copy-trade subscriptions, transactions, and audit logs.
   - WebSocket hub for streaming trades and price updates plus a dedicated socket server that connects to the MetaTrader bridge.
